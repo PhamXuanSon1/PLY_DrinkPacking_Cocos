@@ -209,30 +209,31 @@ export class UI extends Component {
         }, time);
         if(this.width / this.height < 1.5) {
             scale = misc.clampf(scale, 0, 1.1); 
+            // ⚠ Bỏ qua ô trống (null) trong các mảng kéo thả ở Inspector, giống bind().
             this.portraitNodes.forEach((item) => {
-                item.active = true;
+                if (item?.isValid) item.active = true;
             });
             this.landscapeNodes.forEach((item) => {
-                item.active = false;
+                if (item?.isValid) item.active = false;
             });
             this.adaptUIs.forEach((item) => {
-                item.scale = v3(1, 1, 1);
+                if (item?.isValid) item.scale = v3(1, 1, 1);
             });
             this.gameplays.forEach((item) => {
-                item.scale = v3(1, 1, 1).multiplyScalar(scale);
+                if (item?.isValid) item.scale = v3(1, 1, 1).multiplyScalar(scale);
             })      
         } else {
             this.portraitNodes.forEach((item) => {
-                item.active = false;
+                if (item?.isValid) item.active = false;
             });
             this.landscapeNodes.forEach((item) => {
-                item.active = true;
+                if (item?.isValid) item.active = true;
             });
             this.adaptUIs.forEach((item) => {
-                item.scale = v3(1, 1, 1).multiplyScalar(2);
+                if (item?.isValid) item.scale = v3(1, 1, 1).multiplyScalar(2);
             });
             this.gameplays.forEach((item) => {
-                item.scale = v3(1, 1, 1).multiplyScalar(1.1);
+                if (item?.isValid) item.scale = v3(1, 1, 1).multiplyScalar(1.1);
             })
         }
         this.bind();          

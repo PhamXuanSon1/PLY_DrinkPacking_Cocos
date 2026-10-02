@@ -2,6 +2,18 @@ import { _decorator, Component, instantiate, JsonAsset, Layers, Node, Prefab, Sp
 const { ccclass, property, executeInEditMode } = _decorator;
 import { DrinkTile } from './DrinkTile';
 
+/**
+ * Turn a fresh prefab instance into plain nodes. The prefab is only a template here:
+ * changes made by code to a prefab instance (cup sprite, tint, added DrinkTile) are not
+ * recorded as prefab overrides, so they would be lost on save/preview. Rebuild to pick up
+ * prefab edits.
+ */
+function unlinkPrefab(node: Node): void {
+    (node as any)._prefab = null;
+    for (const comp of node.components) (comp as any).__prefab = null;
+    for (const child of node.children) unlinkPrefab(child);
+}
+
 /** Emitted on the builder node after a build, so managers (DrinkItemManager) can refresh. */
 export const MAP_BUILT_EVENT = 'map-built';
 
@@ -181,6 +193,7 @@ export class LevelMapBuilder extends Component {
     /** Prefab instance; must have a Sprite on the root and a child "Cup" with a Sprite. */
     private createFromPrefab(name: string, parent: Node): Node {
         const node = instantiate(this.tilePrefab!);
+        unlinkPrefab(node);
         node.name = name;
         parent.addChild(node);
         if (!node.getComponent(Sprite) || !node.getChildByName('Cup')?.getComponent(Sprite)) {
@@ -206,6 +219,7 @@ export class LevelMapBuilder extends Component {
         let node: Node;
         if (this.mailPrefab) {
             node = instantiate(this.mailPrefab);
+            unlinkPrefab(node);
             node.name = name;
             parent.addChild(node);
         } else {

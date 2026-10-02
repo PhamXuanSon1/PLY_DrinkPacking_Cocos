@@ -4,7 +4,7 @@
     "totalTime": 500,
     "logo": {
       "type": "custom",
-      "image": "project://settings/splash.png"
+      "image": "project://settings/logo 1.png"
     },
     "background": {
       "type": "color",
