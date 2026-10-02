@@ -1,0 +1,198 @@
+import { _decorator, Component, Label, Node, SpriteFrame } from 'cc';
+import { DrinkItemManager } from '../MapTool/DrinkItemManager';
+import { DrinkTile } from '../MapTool/DrinkTile';
+import { LevelMapBuilder } from '../MapTool/LevelMapBuilder';
+import { CustomerController } from './CustomerController';
+import { WaitTray } from './WaitTray';
+const { ccclass, property } = _decorator;
+
+/** Phát trên node này khi thắng / thua. */
+export const LEVEL_WIN_EVENT = 'level-win';
+export const LEVEL_LOSE_EVENT = 'level-lose';
+
+/** Một đơn: khách cần cupsPerOrder cốc cùng loại `drinkId`. */
+interface Order {
+    drinkId: number;
+    /** Số cốc đã được giao (kể cả cốc đang bay tới). */
+    reserved: number;
+    /** Số cốc đã đáp xuống đĩa. */
+    landed: number;
+    done: boolean;
+}
+
+/**
+ * Quản lý khách và đơn đồ uống.
+ *
+ * Đơn không xáo ngẫu nhiên mà được sinh động theo hướng dễ thắng nhất: mỗi khi
+ * một chỗ trống, chọn loại đồ uống mà người chơi đang lấy được nhiều cốc nhất
+ * (cốc trong khay + cốc đang lộ trên bàn). Mỗi loại chỉ được gọi tối đa
+ * (số cốc còn lại / cupsPerOrder) đơn nên tổng đơn luôn khớp tổng cốc.
+ */
+@ccclass('OrderManager')
+export class OrderManager extends Component {
+    @property({ type: DrinkItemManager, tooltip: 'Quản lý các cốc trên bàn' })
+    itemManager: DrinkItemManager | null = null;
+
+    @property({ type: LevelMapBuilder, tooltip: 'Lấy sprite đồ uống theo drinkId (drinkFrames) cho ảnh mờ của khách' })
+    mapBuilder: LevelMapBuilder | null = null;
+
+    @property({ type: [CustomerController], tooltip: 'Các chỗ đứng của khách (3 chỗ)' })
+    customers: CustomerController[] = [];
+
+    @property({ type: WaitTray, tooltip: 'Khay chờ 6 ô' })
+    tray: WaitTray | null = null;
+
+    @property({ type: [SpriteFrame], tooltip: 'Avatar khách, dùng lần lượt' })
+    avatarFrames: SpriteFrame[] = [];
+
+    @property({ type: Label, tooltip: 'Nhãn tiến độ "đã phục vụ/tổng"' })
+    progressLabel: Label | null = null;
+
+    @property({ tooltip: 'Số cốc mỗi đơn' })
+    cupsPerOrder = 3;
+
+    /** Đơn đang hiển thị theo chỗ đứng; null = chỗ trống. */
+    private active: (Order | null)[] = [];
+    /** Số cốc theo drinkId chưa được gán cho đơn nào. */
+    private unassigned = new Map<number, number>();
+    private totalOrders = 0;
+    private served = 0;
+    private spawned = 0;
+    private finished = false;
+
+    start(): void {
+        // Chờ một frame để DrinkItemManager.start() quét xong các cốc.
+        this.scheduleOnce(() => this.startLevel(), 0);
+    }
+
+    /** Bắt đầu (hoặc chơi lại) phần khách: đếm cốc, gắn input, gọi khách đầu tiên. */
+    startLevel(): void {
+        const tiles = this.itemManager?.getTiles() ?? [];
+        this.unassigned.clear();
+        for (const t of tiles) {
+            if (t.collected) continue;
+            this.unassigned.set(t.drinkId, (this.unassigned.get(t.drinkId) ?? 0) + 1);
+            t.node.off(Node.EventType.TOUCH_END, this.onTileTouched, this);
+            t.node.on(Node.EventType.TOUCH_END, this.onTileTouched, this);
+        }
+        for (const [id, n] of this.unassigned) {
+            if (n % this.cupsPerOrder !== 0) console.warn(`[OrderManager] drink ${id}: ${n} cups, not a multiple of ${this.cupsPerOrder}`);
+        }
+        this.totalOrders = Math.floor(tiles.filter(t => !t.collected).length / this.cupsPerOrder);
+        this.served = 0;
+        this.spawned = 0;
+        this.finished = false;
+        this.tray?.reset();
+        this.active = this.customers.map(() => null);
+        this.customers.forEach((c, i) => {
+            c.node.active = false;
+            this.spawnCustomer(i);
+        });
+        this.updateLabel();
+    }
+
+    private onTileTouched(event: { currentTarget: Node }): void {
+        const tile = event.currentTarget.getComponent(DrinkTile);
+        if (!tile || this.finished || !this.itemManager?.isSelectable(tile)) return;
+
+        const order = this.findOrder(tile.drinkId);
+        if (!order && this.tray?.isFull()) return; // Khay đầy: không nhận thêm, không mất cốc.
+
+        // Cốc rời bàn ngay (model), node vẫn giữ lại để nhảy lên khách hoặc khay.
+        this.itemManager.detachTile(tile);
+        if (order) this.deliver(order, tile);
+        else this.tray?.add(tile);
+        this.checkLose();
+    }
+
+    /** Đơn đang chờ cùng loại, ưu tiên đơn đã có nhiều cốc nhất để khách đi sớm. */
+    private findOrder(drinkId: number): Order | null {
+        let best: Order | null = null;
+        for (const o of this.active) {
+            if (o && o.reserved < this.cupsPerOrder && o.drinkId === drinkId && (!best || o.reserved > best.reserved)) best = o;
+        }
+        return best;
+    }
+
+    /** Giao cốc cho đơn: giữ chỗ ngay, cốc nhảy lên đĩa; đủ cốc đáp xong thì khách rời đi. */
+    private deliver(order: Order, tile: DrinkTile): void {
+        const slot = this.active.indexOf(order);
+        const index = order.reserved++;
+        this.customers[slot].receive(tile.node, index, () => {
+            order.landed++;
+            if (order.landed === this.cupsPerOrder) this.complete(order, slot);
+        });
+    }
+
+    private complete(order: Order, slot: number): void {
+        order.done = true;
+        this.served++;
+        this.updateLabel();
+        this.customers[slot].leave(() => {
+            this.active[slot] = null;
+            this.spawnCustomer(slot);
+            this.checkWin();
+            this.checkLose();
+        });
+    }
+
+    /** Gọi khách mới vào chỗ `slot` nếu còn đơn, rồi giao luôn cốc phù hợp đang có trong khay. */
+    private spawnCustomer(slot: number): void {
+        const drinkId = this.pickDrink();
+        if (drinkId === null) return;
+        this.unassigned.set(drinkId, this.unassigned.get(drinkId)! - this.cupsPerOrder);
+        const order: Order = { drinkId, reserved: 0, landed: 0, done: false };
+        this.active[slot] = order;
+        const avatar = this.avatarFrames.length ? this.avatarFrames[this.spawned % this.avatarFrames.length] : null;
+        this.spawned++;
+        this.customers[slot].show(avatar, this.mapBuilder?.drinkFrames[drinkId] ?? null);
+
+        for (const tile of this.tray?.take(drinkId, this.cupsPerOrder) ?? []) this.deliver(order, tile);
+    }
+
+    /**
+     * Chọn loại đồ uống dễ phục vụ nhất. Điểm ưu tiên:
+     * 1. Số cốc lấy được ngay (khay + cốc đang lộ), tối đa bằng một đơn.
+     * 2. Cốc trong khay, để giải phóng khay.
+     * 3. Tránh trùng loại với khách đang đứng.
+     */
+    private pickDrink(): number | null {
+        const selectable = this.itemManager?.getSelectableTiles() ?? [];
+        let bestId: number | null = null;
+        let bestScore = -Infinity;
+        for (const [id, left] of this.unassigned) {
+            if (left < this.cupsPerOrder) continue;
+            const inTray = this.tray?.count(id) ?? 0;
+            const visible = selectable.filter(t => t.drinkId === id).length;
+            const sameActive = this.active.filter(o => o && !o.done && o.drinkId === id).length;
+            const score = Math.min(this.cupsPerOrder, inTray + visible) * 100 + inTray * 10 - sameActive * 50 + left;
+            if (score > bestScore) {
+                bestScore = score;
+                bestId = id;
+            }
+        }
+        return bestId;
+    }
+
+    private checkWin(): void {
+        if (this.finished || this.served < this.totalOrders) return;
+        this.finished = true;
+        console.log('[OrderManager] WIN');
+        this.node.emit(LEVEL_WIN_EVENT);
+    }
+
+    /** Thua khi khay đầy và không cốc lộ nào giao được cho khách đang chờ. */
+    private checkLose(): void {
+        if (this.finished || !this.tray?.isFull()) return;
+        const canDeliver = (this.itemManager?.getSelectableTiles() ?? []).some(t => this.findOrder(t.drinkId));
+        const pending = this.active.some(o => o && (o.done || o.landed < o.reserved)); // Cốc đang bay / khách đang rời đi.
+        if (canDeliver || pending) return;
+        this.finished = true;
+        console.log('[OrderManager] LOSE');
+        this.node.emit(LEVEL_LOSE_EVENT);
+    }
+
+    private updateLabel(): void {
+        if (this.progressLabel) this.progressLabel.string = `${this.served}/${this.totalOrders}`;
+    }
+}

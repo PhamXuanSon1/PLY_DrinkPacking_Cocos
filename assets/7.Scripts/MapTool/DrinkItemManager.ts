@@ -1,25 +1,32 @@
-import { _decorator, Color, Component, UITransform, Vec3 } from 'cc';
+import { _decorator, Color, Component, Node, UITransform, Vec3 } from 'cc';
 import { DrinkTile } from './DrinkTile';
 import { MAP_BUILT_EVENT } from './LevelMapBuilder';
 const { ccclass, property, executeInEditMode } = _decorator;
 
-/** Minimum overlap (px) before a higher tile counts as covering a lower one, so touching edges do not. */
+/** Độ chồng lấp tối thiểu theo mỗi trục (px); chạm cạnh hoặc chồng lấp không quá 2 px thì không tính là bị che. */
 const COVER_EPS = 2;
 
 /**
- * Manages the tiles of a built map: finds every DrinkTile under this node,
- * decides which ones are covered and tints them. LevelMapBuilder only creates the nodes.
+ * Quản lý các ô của bản đồ đã tạo: tìm mọi DrinkTile bên dưới node này,
+ * xác định ô nào bị che và đổi màu chúng. LevelMapBuilder chỉ tạo các node.
  *
- * Covered rule: a tile is covered when any tile on a higher layer overlaps its bounds
- * (card size + position), no matter how many layers above. Covered or not is binary:
- * every covered tile gets the same `coveredColor`.
+ * Quy tắc che: một ô bị che khi có bất kỳ ô nào ở lớp cao hơn chồng lấp lên phạm vi
+ * của nó (kích thước thẻ và vị trí), bất kể cách nhau bao nhiêu lớp. Trạng thái che
+ * chỉ có hai giá trị: mọi ô bị che đều dùng cùng màu `coveredColor`.
  */
 @ccclass('DrinkItemManager')
 @executeInEditMode
 export class DrinkItemManager extends Component {
-    @property({ tooltip: 'Tint for tiles covered by a higher layer' })
-    coveredColor = new Color(150, 150, 150, 255);
+    @property({ type: Node, tooltip: 'Node chứa bản đồ (LevelMapBuilder). Để trống = chính node này' })
+    boardRoot: Node | null = null;
 
+    @property({ tooltip: 'Tint for tiles covered by a higher layer' })
+    coveredColor = new Color(168, 162, 158, 255);
+
+    @property({ tooltip: 'Tint for the cup of a covered tile (game keeps cups bright, only the card turns grey)' })
+    coveredCupColor = new Color(230, 230, 230, 255);
+
+    /** Bật trong Inspector để quét lại bản đồ; giá trị tự trở về false sau khi kích hoạt. */
     @property({ tooltip: 'Tick to re-scan tiles and recompute covered state' })
     get refreshNow(): boolean {
         return false;
@@ -28,50 +35,67 @@ export class DrinkItemManager extends Component {
         if (v) this.refresh();
     }
 
+    /** Tóm tắt kết quả lần cập nhật gần nhất: tổng số ô, số ô bị che và số ô có thể chọn. */
     @property({ readonly: true, tooltip: 'Result of the last refresh' })
     info = '';
 
+    /** Tất cả DrinkTile nằm dưới node quản lý, bao gồm cả ô đã được thu thập. */
     private tiles: DrinkTile[] = [];
 
+    /** Node chứa các cốc: boardRoot nếu được gán, ngược lại là chính node này. */
+    private get board(): Node {
+        return this.boardRoot ?? this.node;
+    }
+
     onLoad(): void {
-        this.node.on(MAP_BUILT_EVENT, this.refresh, this);
+        // Cập nhật lại danh sách và trạng thái khi LevelMapBuilder phát sự kiện tạo bản đồ.
+        this.board.on(MAP_BUILT_EVENT, this.refresh, this);
     }
 
     onDestroy(): void {
-        this.node.off(MAP_BUILT_EVENT, this.refresh, this);
+        // Hủy đăng ký để tránh gọi refresh sau khi component bị hủy.
+        this.board.off(MAP_BUILT_EVENT, this.refresh, this);
     }
 
     start(): void {
+        // Tính trạng thái ban đầu khi scene bắt đầu, kể cả khi bản đồ đã có sẵn.
         this.refresh();
     }
 
-    /** Re-scan tiles under this node, recompute covered state and tints. Returns the covered count. */
+    /**
+     * Quét lại các DrinkTile bên dưới node này, bỏ qua ô đã thu thập rồi tính lại trạng thái che.
+     * Đổi màu từng ô theo trạng thái và cập nhật info; trả về số ô hiện đang bị che.
+     */
     refresh(): number {
-        this.tiles = this.node.getComponentsInChildren(DrinkTile);
+        this.tiles = this.board.getComponentsInChildren(DrinkTile);
         const onBoard = this.tiles.filter(t => !t.collected);
         let covered = 0;
         for (const t of onBoard) {
+            // Chỉ ô ở lớp cao hơn mới che được ô hiện tại; chỉ cần một ô chồng lấp là đủ.
             t.covered = onBoard.some(o => o.layer > t.layer && this.overlaps(t, o));
-            t.setTint(t.covered ? this.coveredColor : Color.WHITE);
+            t.setTint(t.covered ? this.coveredColor : Color.WHITE, t.covered ? this.coveredCupColor : Color.WHITE);
             if (t.covered) covered++;
         }
         this.info = `${onBoard.length} tiles, ${covered} covered, ${onBoard.length - covered} selectable`;
         return covered;
     }
 
+    /** Trả về danh sách DrinkTile đã quét gần nhất; kiểu readonly ngăn bên gọi sửa danh sách này. */
     getTiles(): readonly DrinkTile[] {
         return this.tiles;
     }
 
+    /** Ô có thể chọn khi chưa bị thu thập và không bị ô ở lớp cao hơn che. */
     isSelectable(t: DrinkTile): boolean {
         return !t.collected && !t.covered;
     }
 
+    /** Lọc danh sách đã quét để lấy các ô hiện có thể tương tác. */
     getSelectableTiles(): DrinkTile[] {
         return this.tiles.filter(t => this.isSelectable(t));
     }
 
-    /** Take a tile off the board and uncover what was below it. */
+    /** Đánh dấu ô đã thu thập, ẩn node và quét lại để cập nhật trạng thái các ô còn trên bảng. */
     removeTile(t: DrinkTile): void {
         if (t.collected) return;
         t.collected = true;
@@ -79,18 +103,30 @@ export class DrinkItemManager extends Component {
         this.refresh();
     }
 
-    /** Bounds overlap in this node's space, using each tile's real content size. */
+    /** Đánh dấu ô đã thu thập nhưng giữ node hiển thị (để cốc bay đi chỗ khác), rồi quét lại. */
+    detachTile(t: DrinkTile): void {
+        if (t.collected) return;
+        t.collected = true;
+        this.refresh();
+    }
+
+    /**
+     * Kiểm tra chồng lấp hình chữ nhật trong không gian cục bộ của node quản lý.
+     * Tính phần giao theo chiều rộng và chiều cao; cả hai đều phải lớn hơn COVER_EPS.
+     */
     private overlaps(a: DrinkTile, b: DrinkTile): boolean {
         const pa = this.localPos(a);
         const pb = this.localPos(b);
         const sa = a.node.getComponent(UITransform)!.contentSize;
         const sb = b.node.getComponent(UITransform)!.contentSize;
+        // Khoảng chồng lấp bằng nửa tổng kích thước trừ khoảng cách giữa hai tâm.
         const w = (sa.width + sb.width) / 2 - Math.abs(pa.x - pb.x);
         const h = (sa.height + sb.height) / 2 - Math.abs(pa.y - pb.y);
         return w > COVER_EPS && h > COVER_EPS;
     }
 
+    /** Chuyển vị trí world của ô sang cùng hệ tọa độ cục bộ để so sánh với các ô khác. */
     private localPos(t: DrinkTile): Vec3 {
-        return this.node.getComponent(UITransform)!.convertToNodeSpaceAR(t.node.worldPosition);
+        return this.board.getComponent(UITransform)!.convertToNodeSpaceAR(t.node.worldPosition);
     }
 }

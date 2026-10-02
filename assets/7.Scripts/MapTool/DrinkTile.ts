@@ -2,34 +2,34 @@ import { _decorator, Color, Component, Sprite } from 'cc';
 const { ccclass, property } = _decorator;
 
 /**
- * Data of one cup on the board. LevelMapBuilder fills it when building;
- * DrinkItemManager reads it and owns the runtime state (covered, collected).
+ * Dữ liệu của một cốc trên bảng. LevelMapBuilder điền dữ liệu khi tạo bản đồ;
+ * DrinkItemManager đọc và quản lý trạng thái khi chạy (bị che, đã thu thập).
  */
 @ccclass('DrinkTile')
 export class DrinkTile extends Component {
-    @property({ tooltip: 'Layer index, 0 = bottom layer' })
+    @property({ tooltip: 'Chỉ số lớp, 0 là lớp dưới cùng' })
     layer = 0;
 
-    @property({ tooltip: 'Column in its layer grid' })
+    @property({ tooltip: 'Cột trong lưới của lớp' })
     x = 0;
 
-    @property({ tooltip: 'Row in its layer grid, 0 = top row' })
+    @property({ tooltip: 'Hàng trong lưới của lớp, 0 là hàng trên cùng' })
     y = 0;
 
-    @property({ tooltip: 'Drink ID (matches drink_<id>.png and the level JSON)' })
+    @property({ tooltip: 'Mã đồ uống (khớp với drink_<id>.png và tệp JSON màn chơi)' })
     drinkId = 0;
 
-    /** Covered by a tile on a higher layer. Set by DrinkItemManager. */
+    /** Bị một ô ở lớp cao hơn che. Được DrinkItemManager thiết lập. */
     covered = false;
 
-    /** Taken off the board. Set by DrinkItemManager. */
+    /** Đã được lấy khỏi bảng. Được DrinkItemManager thiết lập. */
     collected = false;
 
-    /** Tint the card and its "Cup" child. */
-    setTint(color: Color): void {
+    /** Đổi màu thẻ và node con "Cup"; bỏ trống `cupColor` thì cốc dùng cùng màu với thẻ. */
+    setTint(color: Color, cupColor: Color = color): void {
         const card = this.getComponent(Sprite);
         if (card) card.color = color;
         const cup = this.node.getChildByName('Cup')?.getComponent(Sprite);
-        if (cup) cup.color = color;
+        if (cup) cup.color = cupColor;
     }
 }

@@ -3,10 +3,10 @@ const { ccclass, property, executeInEditMode } = _decorator;
 import { DrinkTile } from './DrinkTile';
 
 /**
- * Turn a fresh prefab instance into plain nodes. The prefab is only a template here:
- * changes made by code to a prefab instance (cup sprite, tint, added DrinkTile) are not
- * recorded as prefab overrides, so they would be lost on save/preview. Rebuild to pick up
- * prefab edits.
+ * Chuyển một bản sao prefab mới thành các node thông thường. Ở đây prefab chỉ là mẫu:
+ * các thay đổi do mã thực hiện trên bản sao prefab (sprite của cốc, màu, DrinkTile được
+ * thêm vào) không được lưu thành ghi đè prefab, nên sẽ mất khi lưu hoặc xem trước. Hãy
+ * tạo lại bản đồ để áp dụng các chỉnh sửa prefab.
  */
 function unlinkPrefab(node: Node): void {
     (node as any)._prefab = null;
@@ -14,17 +14,17 @@ function unlinkPrefab(node: Node): void {
     for (const child of node.children) unlinkPrefab(child);
 }
 
-/** Emitted on the builder node after a build, so managers (DrinkItemManager) can refresh. */
+/** Phát trên node builder sau khi tạo bản đồ để các manager (DrinkItemManager) cập nhật lại. */
 export const MAP_BUILT_EVENT = 'map-built';
 
-/** JSON shape of `levels/Level_XX.json` from the Unity reference project. */
+/** Cấu trúc JSON của `levels/Level_XX.json` trong dự án Unity tham chiếu. */
 export interface LevelLayerJson {
     layer: number;
     gridX: number;
     gridY: number;
-    /** drinkId -> row-major cell indices. */
+    /** drinkId -> chỉ số ô theo thứ tự từng hàng. */
     tiles: Record<string, number[]>;
-    /** Row-major index of the top-left cell of each Delivery Box. */
+    /** Chỉ số theo thứ tự từng hàng của ô trên cùng bên trái mỗi hộp giao hàng. */
     mail?: number[];
     offsetX?: number;
     offsetY?: number;
@@ -36,11 +36,12 @@ export interface LevelJson {
 }
 
 /**
- * Editor tool: lays out a level's stacked tile map from its JSON. It only creates and places nodes;
- * gameplay state (covered tint, selectable tiles...) belongs to DrinkItemManager.
- * Tick "Build" in the Inspector to (re)generate the nodes under this node, "Clear" to remove them.
- * Index convention: row-major, x = index % gridX, y = floor(index / gridX), y = 0 is the top row.
- * Layers are centred on each other, so grids that differ by one cell sit half a cell apart.
+ * Công cụ trong trình chỉnh sửa: sắp xếp bản đồ gồm các lớp ô chồng lên nhau từ JSON của màn chơi.
+ * Công cụ chỉ tạo và đặt node; trạng thái chơi (màu khi bị che, ô có thể chọn...) do
+ * DrinkItemManager quản lý.
+ * Đánh dấu "Build" trong Inspector để tạo lại các node bên dưới node này; đánh dấu "Clear" để xóa.
+ * Quy ước chỉ số: theo thứ tự từng hàng, x = index % gridX, y = floor(index / gridX), y = 0 là hàng trên cùng.
+ * Các lớp được căn giữa với nhau, vì vậy những lưới chênh nhau một ô sẽ lệch nửa ô.
  */
 @ccclass('LevelMapBuilder')
 @executeInEditMode
@@ -103,8 +104,8 @@ export class LevelMapBuilder extends Component {
     clearMap(): void {
         for (const child of [...this.node.children]) {
             if (!child.name.startsWith('Layer')) continue;
-            // Detach now: destroy() only happens at the end of the frame, and a manager
-            // refreshing right after a rebuild must not see the old tiles.
+            // Tách node ngay: destroy() chỉ có hiệu lực vào cuối khung hình, manager cập nhật
+            // ngay sau khi tạo lại bản đồ không được nhìn thấy các ô cũ.
             child.removeFromParent();
             child.destroy();
         }
@@ -115,7 +116,7 @@ export class LevelMapBuilder extends Component {
         this.buildFromData(this.levelJson?.json as LevelJson | undefined);
     }
 
-    /** Build from level data directly (used by the Drink Map Tool editor panel). */
+    /** Tạo bản đồ trực tiếp từ dữ liệu màn chơi (được bảng công cụ Drink Map sử dụng). */
     buildFromData(json: LevelJson | undefined): void {
         if (!json || !json.layers) {
             this.info = 'Missing level JSON';
@@ -136,7 +137,7 @@ export class LevelMapBuilder extends Component {
                     cells.push({ x: index % l.gridX, y: Math.floor(index / l.gridX), id: Number(key) });
                 }
             }
-            // Rows top to bottom so each row draws over the lip of the row above.
+            // Sắp xếp các hàng từ trên xuống dưới để mỗi hàng được vẽ đè lên mép hàng phía trên.
             cells.sort((a, b) => a.y - b.y || a.x - b.x);
             for (const c of cells) {
                 const node = this.createTile(layerNode, c.id, `T_${c.x}_${c.y}_d${c.id}`);
@@ -190,7 +191,7 @@ export class LevelMapBuilder extends Component {
         return node;
     }
 
-    /** Prefab instance; must have a Sprite on the root and a child "Cup" with a Sprite. */
+    /** Tạo bản sao prefab; node gốc phải có Sprite và node con "Cup" phải có Sprite. */
     private createFromPrefab(name: string, parent: Node): Node {
         const node = instantiate(this.tilePrefab!);
         unlinkPrefab(node);
@@ -202,7 +203,7 @@ export class LevelMapBuilder extends Component {
         return node;
     }
 
-    /** Fallback when no prefab is assigned: card Sprite + empty "Cup" child. */
+    /** Phương án dự phòng khi không gán prefab: tạo Sprite cho thẻ và node con "Cup" rỗng. */
     private createTileNodes(name: string, parent: Node): Node {
         const node = this.createNode(name, parent);
         const bg = node.addComponent(Sprite);

@@ -53,7 +53,9 @@ exports.methods = {
         // Covered tint is gameplay state: it lives on DrinkItemManager, which refreshes
         // itself when the builder emits 'map-built'.
         const Manager = cc.js.getClassByName('DrinkItemManager');
-        const manager = Manager ? (parent.getComponent(Manager) || parent.addComponent(Manager)) : null;
+        // Prefer a manager elsewhere (e.g. Manager/DrinkItemManager) whose boardRoot is this map.
+        const external = Manager ? cc.director.getScene().getComponentsInChildren(Manager).find(m => m.boardRoot === parent) : null;
+        const manager = Manager ? (external || parent.getComponent(Manager) || parent.addComponent(Manager)) : null;
         const g = Math.max(0, Math.min(255, Math.round(Number(v.coveredGray) || 150)));
         if (manager) manager.coveredColor = new cc.Color(g, g, g, 255);
 
