@@ -1,0 +1,34 @@
+{
+  "__version__": "1.3.9",
+  "splash-setting": {
+    "totalTime": 500,
+    "logo": {
+      "type": "custom",
+      "image": "project://settings/splash.png"
+    },
+    "background": {
+      "type": "color",
+      "color": {
+        "x": 1,
+        "y": 0.8392156862745098,
+        "z": 0.49411764705882355,
+        "w": 1
+      }
+    },
+    "displayRatio": 1
+  },
+  "textureCompressConfig": {
+    "userPreset": {
+      "03/m4ybQVOJ7SPOhieTjrl": {
+        "name": "SingleHTML",
+        "options": {
+          "web": {
+            "png": {
+              "quality": 80
+            }
+          }
+        }
+      }
+    }
+  }
+}
