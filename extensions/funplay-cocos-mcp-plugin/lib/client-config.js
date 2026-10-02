@@ -6,7 +6,6 @@ const path = require('path');
 const { getProjectIdentity } = require('./config');
 const { readOptionalText, writeTextIfUnchanged } = require('./atomic-file');
 const { findGitRootOrSelf } = require('./skill-platforms');
-const { parseJsonc, updateJsonc } = require('./jsonc');
 
 const SERVER_NAME = 'funplay_cocos';
 
@@ -50,7 +49,7 @@ function formatTargetPreview(target) {
 }
 
 function isGeneratedEntry(entry, url) {
-  return isObject(entry) && entry.url === url && Object.keys(entry).every((key) => key === 'url' || (key === 'type' && (entry.type === 'http' || entry.type === 'remote')));
+  return isObject(entry) && entry.url === url && Object.keys(entry).every((key) => key === 'url' || (key === 'type' && entry.type === 'http'));
 }
 
 function canReplaceEntry(target, name, url) {
@@ -101,22 +100,6 @@ function getVSCodeConfigPath(homePath, options = {}) {
   }
 }
 
-function getOpenCodeConfigPath(homePath, options = {}) {
-  const env = options.env || process.env;
-  const existsSync = options.existsSync || fs.existsSync;
-
-  // OpenCode resolves its global config dir cross-platform via xdg-basedir
-  // (packages/core/src/global.ts): XDG_CONFIG_HOME wins, else ~/.config.
-  // There is no APPDATA or macOS Application Support branch.
-  const xdgHome = String(env && env.XDG_CONFIG_HOME || '').trim();
-  const configDir = xdgHome || path.join(homePath, '.config');
-  const dir = path.join(configDir, 'opencode');
-  // globalConfigFile() prefers opencode.jsonc over opencode.json; write
-  // where the user already keeps the file, else the canonical .json.
-  const jsonc = path.join(dir, 'opencode.jsonc');
-  return existsSync(jsonc) ? jsonc : path.join(dir, 'opencode.json');
-}
-
 function getConfiguredDirectory(env, key, fallback) {
   const configured = String(env && env[key] || '').trim();
   return configured || fallback;
@@ -129,7 +112,7 @@ function ensureParent(filePath) {
   }
 }
 
-function readJson(filePath, isJsonc = false) {
+function readJson(filePath) {
   if (!fs.existsSync(filePath)) {
     return {};
   }
@@ -139,12 +122,12 @@ function readJson(filePath, isJsonc = false) {
     return {};
   }
 
-  return isJsonc ? parseJsonc(text) : JSON.parse(text);
+  return JSON.parse(text);
 }
 
 function configureJsonTarget(target) {
   const original = readOptionalText(target.configPath);
-  const root = target.isJsonc ? parseJsonc(original || '') : (original && original.trim() ? JSON.parse(original) : {});
+  const root = original && original.trim() ? JSON.parse(original) : {};
   const servers = getServerContainer(root, target, true);
   const name = target.serverName || SERVER_NAME;
   const existing = servers[name];
@@ -154,8 +137,7 @@ function configureJsonTarget(target) {
   if (target.migrateLegacy && name !== SERVER_NAME && isGeneratedEntry(servers[SERVER_NAME], target.entry.url)) delete servers[SERVER_NAME];
   if (target.scopePath && target.migrateLegacy && isObject(root.mcpServers) && isGeneratedEntry(root.mcpServers[SERVER_NAME], target.entry.url)) delete root.mcpServers[SERVER_NAME];
   servers[name] = { ...(existing || {}), ...target.entry };
-  const content = target.isJsonc ? updateJsonc(original || '', root) : JSON.stringify(root, null, 2) + '\n';
-  if (content !== original) writeTextIfUnchanged(target.configPath, content, original);
+  writeTextIfUnchanged(target.configPath, JSON.stringify(root, null, 2) + '\n', original);
 }
 
 function configureTomlTarget(target) {
@@ -280,14 +262,6 @@ function buildTargets(config, options = {}) {
       isToml: true,
       url,
     },
-    {
-      id: 'opencode',
-      name: 'OpenCode',
-      configPath: getOpenCodeConfigPath(home, options),
-      rootKey: 'mcp',
-      entry: { type: 'remote', url },
-      isJsonc: true,
-    },
   ].map((target) => config.projectPath ? ({
     ...target,
     serverName: getServerName(config),
@@ -316,7 +290,7 @@ function isTargetConfigured(target) {
       return getTomlServerUrl(target) === target.url;
     }
 
-    const root = readJson(target.configPath, target.isJsonc);
+    const root = readJson(target.configPath);
     const servers = getServerContainer(root, target);
     const entry = servers && servers[target.serverName || SERVER_NAME];
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {

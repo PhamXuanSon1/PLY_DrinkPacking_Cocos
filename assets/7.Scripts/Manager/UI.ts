@@ -1,10 +1,8 @@
 import { _decorator, Animation, Camera, Color, Component, Director, Enum, EventTouch, Label, misc, Node, ParticleSystem2D, PhysicsSystem, size, Size, Sprite, toDegree, Tween, tween, UITransform, v2, v3, Vec2, Vec3, view, Widget } from 'cc';
-import { World } from './World';
 import { PointerController } from './PointerController';
-import { SoundType } from './SoundManager';
+import { Ply_SoundManager, FxType } from '../MyScript/ScriptTemplate/Ply_SoundManager';
 import { Clock } from './Clock';
 import { ipm } from './InputManager';
-import { room } from '../Gameplay/Room';
 const { ccclass, property } = _decorator;
 
 export enum BindUIType {
@@ -46,17 +44,7 @@ export class UI extends Component {
     onLoad() {
         ui = this;
         
-        try {
-            if(window.redirectStore.toString() == "function redirectStore(){window.open(clickTag)}") {
-                this.offButtons.forEach(node => node.active = false);
-            }
-            
-            
-        } catch (error) {
-            
-        }
-    }
-
+    } 
     bindingToStore() {
         PointerController.ins.unBindingEvent();
         ipm.offBinding();
@@ -65,36 +53,35 @@ export class UI extends Component {
 
     openStore(...args: any) {
         console.log('openStore');  
-        World.ins.soundmanager.stopAll();      
-        World.ins.openStore.redirectToStore();
+        Ply_SoundManager.Ins?.stopAll();      
     }
 
     first: boolean = true;
     firstMove() {
         if(this.first) {
             this.first = false;
-            this.fisrtOn.forEach(node => node.active = true);
-            this.firstOff.forEach(node => node.active = false);
+            this.fisrtOn.forEach(node => { if (node?.isValid) node.active = true; });
+            this.firstOff.forEach(node => { if (node?.isValid) node.active = false; });
         }
     }
 
     onLose() {
-        if(this.endcard.active || this.winCard.active) return;  
-        this.offEnds.forEach(button => button.active = false);
+        if(this.endcard.active || this.winCard.active) return;
+        this.offEnds.forEach(button => { if (button?.isValid) button.active = false; });
         this.offHand();
         this.endcard.active = true;
         this.bindingToStore();       
-        World.ins.soundmanager.playSound(SoundType.Fail);    
+        Ply_SoundManager.Ins?.playFx(FxType.dropOnFloor);    
     }
 
 
     onWin() {
-        if(this.endcard.active || this.winCard.active) return; 
-        this.offEnds.forEach(button => button.active = false);
+        if(this.endcard.active || this.winCard.active) return;
+        this.offEnds.forEach(button => { if (button?.isValid) button.active = false; });
         this.offHand();
         this.winCard.active = true;
         this.bindingToStore();  
-        World.ins.soundmanager.playSound(SoundType.Win);      
+        Ply_SoundManager.Ins?.playFx(FxType.GoldChest);      
     }
 
     offHand() {
@@ -151,8 +138,12 @@ export class UI extends Component {
         }
 
 
+        // ⚠ Bỏ qua ô trống (null) trong binds: 1 ô null làm bind() văng lỗi
+        //   "reading 'position'" và các binding phía sau (Left/Right...) không chạy.
         this.bindings.forEach(bind => {
+            if (!bind) return;
             bind.binds.forEach(item => {
+                if (!item || !item.isValid || !item.parent) return;
                 item.position = item.position.clone();
                 let pos = item.getWorldPosition();
                 switch(bind.type) {
@@ -339,6 +330,13 @@ export class UI extends Component {
     }
 
     start() {
+        try {
+            if(PlayableSDK.channel == "Google") {
+                this.offButtons.forEach(node => node.active = false);
+            }
+        } catch (error) {
+
+        }
     }
 
     update(dt: number) {

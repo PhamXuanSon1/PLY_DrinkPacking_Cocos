@@ -1,0 +1,30 @@
+{
+  "package_version": 2,
+  "name": "drink-map-tool",
+  "version": "1.0.0",
+  "description": "Edit Drink Packing level maps (layers, drink tiles, delivery boxes) and build them into the scene.",
+  "author": "PLY",
+  "editor": ">=3.7.0",
+  "main": "./main.js",
+  "panels": {
+    "default": {
+      "title": "Drink Map Tool",
+      "type": "dockable",
+      "main": "./src/panels/default.js",
+      "size": { "min-width": 760, "min-height": 520, "width": 1180, "height": 760 }
+    }
+  },
+  "contributions": {
+    "menu": [{ "path": "Tool", "label": "Drink Map Tool", "message": "open-panel" }],
+    "scene": { "script": "./src/scene.js" },
+    "messages": {
+      "open-panel": { "methods": ["openPanel"] },
+      "read-level": { "methods": ["readLevel"] },
+      "read-unity-level": { "methods": ["readUnityLevel"] },
+      "selected-json": { "methods": ["selectedJson"] },
+      "save-level": { "methods": ["saveLevel"] },
+      "resolve-sprites": { "methods": ["resolveSprites"] },
+      "apply-map": { "methods": ["applyMap"] }
+    }
+  }
+}

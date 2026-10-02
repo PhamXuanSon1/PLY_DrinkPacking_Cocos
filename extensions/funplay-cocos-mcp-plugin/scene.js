@@ -32,17 +32,6 @@ const {
 } = cc;
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
-async function callPreviewRuntimeTool(name) {
-  // Keep legacy scene-script entrypoints, but route them back to the editor's
-  // Game View controller rather than pausing this edit-scene director.
-  const output = await Editor.Message.request('funplay-cocos-mcp', 'call-tool', name, {});
-  const result = typeof output === 'string' ? JSON.parse(output) : output;
-  if (!result || result.ok !== true) {
-    throw new Error((result && result.summary) || `Preview tool '${name}' failed.`);
-  }
-  return result.data;
-}
-
 function getScene() {
   const scene = director.getScene();
   if (!scene) {
@@ -1367,7 +1356,6 @@ exports.methods = {
   async getRuntimeState() {
     const scheduler = getScheduler();
     return {
-      scope: 'editScene',
       sceneName: getScene().name,
       paused: typeof director.isPaused === 'function' ? director.isPaused() : false,
       timeScale: scheduler && typeof scheduler.getTimeScale === 'function' ? scheduler.getTimeScale() : 1,
@@ -1389,7 +1377,6 @@ exports.methods = {
     return {
       sceneName: getScene().name,
       runtime: {
-        scope: 'editScene',
         paused: typeof director.isPaused === 'function' ? director.isPaused() : false,
         timeScale: scheduler && typeof scheduler.getTimeScale === 'function' ? scheduler.getTimeScale() : 1,
         totalFrames: typeof director.getTotalFrames === 'function' ? director.getTotalFrames() : undefined,
@@ -1416,11 +1403,17 @@ exports.methods = {
   },
 
   async pauseRuntime() {
-    return await callPreviewRuntimeTool('pause_runtime');
+    if (typeof director.pause === 'function') {
+      director.pause();
+    }
+    return await exports.methods.getRuntimeState();
   },
 
   async resumeRuntime() {
-    return await callPreviewRuntimeTool('resume_runtime');
+    if (typeof director.resume === 'function') {
+      director.resume();
+    }
+    return await exports.methods.getRuntimeState();
   },
 
   async setTimeScale(options = {}) {

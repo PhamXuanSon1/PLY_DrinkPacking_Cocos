@@ -1,7 +1,5 @@
 'use strict';
 
-const previewRuntime = require('../preview-runtime');
-
 const PREVIEW_PROFILE_PACKAGE = 'preview';
 const PREVIEW_PROFILE_KEY = 'preview.current.platform';
 const PREVIEW_PROFILE_SCOPE = 'local';
@@ -248,7 +246,24 @@ async function setPreviewMode(value) {
 
   const mode = normalizePreviewMode(value);
   const previous = await getPreviewMode({ includeUrl: false });
-  const runtime = await previewRuntime.controlPreviewToolbar({ action: 'set-mode', mode });
+  let editorPreviewStop = null;
+  let editorPreviewStopError = '';
+
+  if (previous.mode === 'gameView' && mode !== 'gameView') {
+    try {
+      editorPreviewStop = await requestEditorMessage('scene', 'editor-preview-set-play', false);
+    } catch (error) {
+      editorPreviewStopError = error.message;
+    }
+  }
+
+  await Editor.Profile.setConfig(
+    PREVIEW_PROFILE_PACKAGE,
+    PREVIEW_PROFILE_KEY,
+    mode,
+    PREVIEW_PROFILE_SCOPE
+  );
+  Editor.Message.send('preview', 'change-platform', mode);
 
   const current = await getPreviewMode({ includeUrl: false });
   if (current.mode !== mode) {
@@ -260,9 +275,8 @@ async function setPreviewMode(value) {
     previousMode: previous.mode,
     mode,
     label: PREVIEW_MODE_DETAILS[mode].label,
-    editorPreviewStop: previous.mode === 'gameView' && mode !== 'gameView' ? !runtime.running : null,
-    editorPreviewStopError: '',
-    runtime,
+    editorPreviewStop,
+    editorPreviewStopError,
     supportedModes: previewModeCatalog(),
   };
 }
@@ -288,14 +302,16 @@ async function runProjectPreview(options = {}) {
 
   const usedDeprecatedPlatform = options.mode == null && options.platform != null;
   if (mode === 'gameView') {
-    const runtime = await previewRuntime.controlPreviewToolbar({ action: 'start' });
+    const result = await requestEditorMessage('scene', 'editor-preview-set-play', true);
+    if (result === false) {
+      throw new Error('Cocos Creator rejected the editor preview start request.');
+    }
     return {
       started: true,
       mode,
       label: PREVIEW_MODE_DETAILS[mode].label,
-      method: 'preview.toolbar.play',
-      result: true,
-      runtime,
+      method: 'scene.editor-preview-set-play',
+      result,
       ...resolvePreviewUrls(''),
       urlError: '',
       modeChange,
@@ -441,7 +457,7 @@ function createCocosProjectTools({ createSchema }) {
     {
       name: 'set_preview_mode',
       profile: 'full',
-      description: '[core] Switch Cocos Creator 3.8.x preview mode through the native toolbar, synchronizing its state and stopping Game View before switching away.',
+      description: '[core] Switch Cocos Creator preview mode using the supported 3.8.x Preview profile and toolbar message.',
       inputSchema: createSchema(
         {
           mode: {
@@ -457,7 +473,7 @@ function createCocosProjectTools({ createSchema }) {
     {
       name: 'run_project_preview',
       profile: 'full',
-      description: '[core] Start Cocos Creator 3.8.x preview in browser, editor Game View, or simulator mode. Game View uses the native toolbar and does not toggle off an already running preview. Browser results use a same-host loopback url/localUrl and preserve Creator\'s reported LAN address as networkUrl.',
+      description: '[core] Start Cocos Creator 3.8.x preview in browser, editor Game View, or simulator mode. Browser results use a same-host loopback url/localUrl and preserve Creator\'s reported LAN address as networkUrl.',
       inputSchema: createSchema(
         {
           mode: {

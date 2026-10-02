@@ -19,6 +19,8 @@ import { Director, director, DirectorEvent } from "cc";
 export class AppLovinAnalytics {
 
     static track(event: string) {
+        console.log(event);
+        
         const analytics = (window as any).ALPlayableAnalytics;
         if (analytics) {
             analytics.trackEvent(event);
@@ -81,7 +83,7 @@ director.once(Director.EVENT_BEFORE_SCENE_LAUNCH, () => {
     AppLovinAnalytics.loaded();
 })
 
-director.on(Director.EVENT_AFTER_SCENE_LAUNCH, () => {
+director.once(Director.EVENT_AFTER_SCENE_LAUNCH, () => {
     AppLovinAnalytics.displayed();
 })
 

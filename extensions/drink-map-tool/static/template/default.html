@@ -1,0 +1,92 @@
+<div id="app">
+  <header>
+    <h2>Drink Map Tool</h2>
+    <div class="hint">Tải level JSON → chọn tầng → chọn loại cốc ở bảng màu rồi click/kéo lên lưới để xếp (chuột phải = xóa). Công cụ Mail đặt hộp giao hàng (kích thước chỉnh ở Mail W/H, mặc định 2×2 như game gốc). Chọn node trong Canvas rồi Apply để dựng map vào scene.</div>
+  </header>
+
+  <section class="bar">
+    <label class="grow">JSON <input id="jsonUrl" type="text" value="db://assets/resources/level14/data/level_14.json"></label>
+    <ui-button id="pickJson">Lấy file đang chọn</ui-button>
+    <ui-button id="loadJson">Tải</ui-button>
+    <ui-button id="saveJson">Lưu JSON</ui-button>
+    <ui-button id="newLevel">Map mới</ui-button>
+  </section>
+  <section class="bar">
+    <label class="grow">Level Unity <input id="unityDir" type="text" value="F:/AssetDrinkPacking/Ripper/ExportedProject/Assets/Resources/levels"></label>
+    <label>Số <input id="unityLevel" type="number" min="1" value="14"></label>
+    <ui-button id="loadUnity">Import</ui-button>
+  </section>
+
+  <div class="main">
+    <div class="editor">
+      <section class="bar">
+        <span>Level <input id="levelNum" type="number" min="1" value="1"></span>
+        <span>Độ khó <select id="hard"><option value="normal">normal</option><option value="hard">hard</option><option value="veryhard">veryhard</option></select></span>
+        <span>Region <input id="region" type="number" min="0" value="0"></span>
+      </section>
+
+      <section class="bar">
+        <strong>Tầng</strong>
+        <div id="layerTabs" class="tabs"></div>
+        <ui-button id="addLayer">+ Tầng</ui-button>
+        <ui-button id="removeLayer">− Tầng</ui-button>
+        <ui-button id="layerUp" title="Đổi thứ tự với tầng trên">▲</ui-button>
+        <ui-button id="layerDown" title="Đổi thứ tự với tầng dưới">▼</ui-button>
+      </section>
+      <section class="bar">
+        <span>Cột <input id="gridX" type="number" min="1" max="20" value="5"></span>
+        <span>Hàng <input id="gridY" type="number" min="1" max="20" value="5"></span>
+        <span>Lệch X <input id="offsetX" type="number" step="0.5" value="0"></span>
+        <span>Lệch Y <input id="offsetY" type="number" step="0.5" value="0"></span>
+        <span>Mail W <input id="mailW" type="number" min="1" max="10" value="2"></span>
+        <span>Mail H <input id="mailH" type="number" min="1" max="10" value="2"></span>
+        <label class="check"><input id="ghostBelow" type="checkbox" checked> Hiện tầng dưới mờ</label>
+      </section>
+
+      <div id="palette" class="palette"></div>
+      <section class="bar">
+        <ui-button id="fillLayer">Tô ô trống bằng cốc đang chọn</ui-button>
+        <ui-button id="clearLayer">Xóa tầng</ui-button>
+        <ui-button id="shuffleIds">Xáo ID toàn map</ui-button>
+        <ui-button id="undo">Hoàn tác</ui-button>
+      </section>
+
+      <div class="gridwrap"><div id="grid" class="grid"></div></div>
+    </div>
+
+    <div class="side">
+      <strong>Xem trước (giống trong game)</strong>
+      <label class="check"><input id="previewUpTo" type="checkbox"> Chỉ hiện tới tầng đang sửa</label>
+      <canvas id="preview" width="420" height="460"></canvas>
+
+      <strong>Khách / đơn (drink ID mỗi khách, 3 cốc/khách)</strong>
+      <textarea id="customers" rows="3" placeholder="0,0,7,8,..."></textarea>
+      <div class="bar">
+        <ui-button id="genCustomers">Tạo khách từ số cốc</ui-button>
+        <ui-button id="shuffleCustomers">Xáo thứ tự khách</ui-button>
+      </div>
+
+      <strong>Kiểm tra</strong>
+      <div id="stats" class="stats"></div>
+    </div>
+  </div>
+
+  <section class="settings">
+    <span>Ảnh <input id="spriteRoot" type="text" value="db://assets/resources/level14/sprites"></span>
+    <span>Số loại cốc <input id="maxId" type="number" min="1" value="10"></span>
+    <span>Card W <input id="cardW" type="number" value="140"></span>
+    <span>Card H <input id="cardH" type="number" value="144"></span>
+    <span>Step X <input id="stepX" type="number" value="144"></span>
+    <span>Step Y <input id="stepY" type="number" value="148"></span>
+    <span>Cốc/Card <input id="cupRatio" type="number" step="0.01" value="0.82"></span>
+    <span>Cốc lệch Y <input id="cupOffsetY" type="number" value="4"></span>
+    <span>Xám ô bị che <input id="coveredGray" type="number" min="0" max="255" value="150"></span>
+    <ui-button id="reloadSprites">Tải lại ảnh</ui-button>
+  </section>
+
+  <footer>
+    <span id="status" class="hint grow"></span>
+    <label class="check"><input id="saveBeforeApply" type="checkbox" checked> Lưu JSON trước khi Apply</label>
+    <ui-button id="apply" type="primary">Apply vào node đang chọn</ui-button>
+  </footer>
+</div>
