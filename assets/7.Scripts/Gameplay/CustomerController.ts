@@ -113,6 +113,9 @@ export class CustomerController extends Component {
     @property({ type: CustomerFx, tooltip: 'Lớp hiệu ứng (lấp lánh, confetti, vệt gió); để trống = không có FX', group: GROUP.heartFx })
     fx: CustomerFx | null = null;
 
+    @property({ type: Node, tooltip: 'Lớp vẽ avatar phía sau quầy (đặt trước Table trong UI_SlotBar). Khi chạy, Avatar được chuyển sang lớp này và bám theo khách; để trống = Avatar nằm trong Customer như cũ', group: GROUP.character })
+    avatarLayer: Node | null = null;
+
     /** Các node cốc thật đã giao cho khách hiện tại. */
     private delivered: Node[] = [];
     /** Vị trí đứng của Avatar đặt trong scene; Avatar trượt vào tới đây và trượt ra từ đây. */
@@ -123,6 +126,8 @@ export class CustomerController extends Component {
     private avatarHeight: number | null = null;
     /** Vị trí gốc của chữ khen đặt trong scene (chữ bay lên khi mờ dần). */
     private praiseHome: Vec3 | null = null;
+    /** Node bám theo Customer trong `avatarLayer`, chứa Avatar để Avatar vẽ phía sau quầy. */
+    private avatarRoot: Node | null = null;
     /** Tim đang hiện của khách hiện tại (lấy từ pool PoolType.HeartEmoji). */
     private heart: PoolMember | null = null;
 
@@ -130,6 +135,48 @@ export class CustomerController extends Component {
         this.homePosition = this.slideNode.position.clone();
         if (this.praiseNode) this.praiseNode.active = false;
         if (!this.heartAnchor) this.heartAnchor = this.avatar?.node.getChildByName('heart_emoji') ?? null;
+        this.moveAvatarBehindCounter();
+    }
+
+    /**
+     * Quầy (Table) vẽ trước các Tray nên Avatar trong Customer luôn đè lên quầy. Chuyển Avatar
+     * sang `avatarLayer` (đặt trước Table) dưới một node bám theo Customer; Avatar giữ nguyên
+     * vị trí cục bộ nên trượt vào / ra, tim, FX vẫn chạy như cũ.
+     */
+    private moveAvatarBehindCounter(): void {
+        const avatar = this.avatar?.node;
+        if (!this.avatarLayer || !avatar || this.avatarRoot) return;
+        const root = new Node(`${this.node.parent?.name ?? this.node.name}_Avatar`);
+        root.layer = this.node.layer;
+        root.addComponent(UITransform);
+        this.avatarLayer.addChild(root);
+        this.avatarRoot = root;
+        this.syncAvatarRoot();
+        avatar.setParent(root, false);
+        root.active = this.node.activeInHierarchy;
+    }
+
+    /** Node chứa Avatar trùng vị trí / scale world với Customer (đĩa có thể bị dời, quầy phóng to). */
+    private syncAvatarRoot(): void {
+        const root = this.avatarRoot;
+        if (!root) return;
+        root.setWorldPosition(this.node.worldPosition);
+        root.setWorldScale(this.node.worldScale);
+    }
+
+    lateUpdate(): void {
+        this.syncAvatarRoot();
+    }
+
+    onEnable(): void {
+        if (this.avatarRoot) {
+            this.avatarRoot.active = true;
+            this.syncAvatarRoot();
+        }
+    }
+
+    onDisable(): void {
+        if (this.avatarRoot?.isValid) this.avatarRoot.active = false;
     }
 
     /**
@@ -259,6 +306,7 @@ export class CustomerController extends Component {
      */
     private sendToBack(): void {
         this.node.parent?.setSiblingIndex(0);
+        this.avatarRoot?.setSiblingIndex(0);
     }
 
     /** Các cốc đã giao nhấc lên và phồng to, giữ một chút rồi thu nhỏ về 0 tại chỗ và bị hủy. */
@@ -394,5 +442,6 @@ export class CustomerController extends Component {
 
     onDestroy(): void {
         Tween.stopAllByTarget(this.slideState);
+        if (this.avatarRoot?.isValid) this.avatarRoot.destroy();
     }
 }
