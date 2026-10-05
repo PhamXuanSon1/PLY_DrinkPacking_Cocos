@@ -38,6 +38,9 @@ export class CustomerController extends Component {
     @property({ tooltip: 'Thời gian khách còn đứng sau khi đủ đơn rồi mới biến mất (giây)' })
     doneHoldDuration = 0.3;
 
+    @property({ tooltip: 'Thời gian cốc thu nhỏ bay vào avatar khi đủ đơn (giây)' })
+    absorbDuration = 0.5;
+
     @property({ tooltip: 'Độ cao cung nhảy của cốc khi giao cho khách' })
     jumpHeight = 150;
 
@@ -114,19 +117,64 @@ export class CustomerController extends Component {
         }, 0.35, this.jumpHeight);
     }
 
-    /** Đủ đơn: hiện tim, đứng thêm một lúc, trượt ra bên trái cùng các cốc rồi ẩn; gọi `done` khi đã ẩn. */
+    /** Đủ đơn: cốc thu nhỏ bay vào avatar, đứng thêm một lúc, trượt ra bên trái rồi ẩn; gọi `done` khi đã ẩn. */
     leave(done: () => void): void {
-        this.showHeart();
-        this.scheduleOnce(() => {
-            const home = this.homePosition ?? this.node.position;
-            // Cốc đã là con của Cup_i nên trượt theo khách; hủy sau khi ra khỏi màn hình.
-            this.slide(this.node.position.x, home.x - this.slideDistance, () => {
-                for (const n of this.delivered) n.destroy();
-                this.delivered = [];
-                this.node.active = false;
-                done();
-            });
-        }, this.doneHoldDuration);
+        this.absorbDrinks(() => {
+            this.showHeart();
+            this.scheduleOnce(() => {
+                const home = this.homePosition ?? this.node.position;
+                this.slide(this.node.position.x, home.x - this.slideDistance, () => {
+                    this.node.active = false;
+                    done();
+                });
+            }, this.doneHoldDuration);
+        });
+    }
+
+    /** Các cốc đã giao vừa thu nhỏ về 0 vừa bay vào tâm avatar trong `absorbDuration` giây rồi bị hủy. */
+    private absorbDrinks(done: () => void): void {
+        const drinks = this.delivered.filter(n => n.isValid);
+        this.delivered = [];
+        for (const tick of this.ticks) tick.active = false;
+        const avatar = this.avatar?.node;
+        if (!drinks.length || !avatar) {
+            for (const n of drinks) n.destroy();
+            done();
+            return;
+        }
+        // Đích là tâm hình của Avatar (world), không phụ thuộc anchor của Avatar.
+        const avatarUt = avatar.getComponent(UITransform);
+        const center = avatarUt?.getBoundingBoxToWorld().center;
+        const target = center ? new Vec3(center.x, center.y, avatar.worldPosition.z) : avatar.worldPosition.clone();
+        let remaining = drinks.length;
+        for (const drink of drinks) {
+            Tween.stopAllByTarget(drink);
+            // Tính trong world space: tâm cốc (node con "Cup") đi từ chỗ đứng tới tâm Avatar,
+            // node card lệch so với cốc một đoạn `offset` co lại theo scale.
+            const cup = drink.getChildByName('Cup');
+            const start = (cup ?? drink).worldPosition.clone();
+            const offset = cup ? drink.worldPosition.clone().subtract(cup.worldPosition) : new Vec3();
+            const startScale = drink.scale.clone();
+            const pos = new Vec3();
+            const state = { k: 0 };
+            tween(state)
+                .to(this.absorbDuration, { k: 1 }, {
+                    easing: 'quadIn',
+                    onUpdate: () => {
+                        if (!drink.isValid) return;
+                        const s = 1 - state.k;
+                        Vec3.lerp(pos, start, target, state.k);
+                        pos.add3f(offset.x * s, offset.y * s, 0);
+                        drink.setWorldPosition(pos);
+                        drink.setScale(startScale.x * s, startScale.y * s, startScale.z);
+                    },
+                })
+                .call(() => {
+                    if (drink.isValid) drink.destroy();
+                    if (--remaining === 0) done();
+                })
+                .start();
+        }
     }
 
     /**
