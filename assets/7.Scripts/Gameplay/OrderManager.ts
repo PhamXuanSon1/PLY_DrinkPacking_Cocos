@@ -1,4 +1,4 @@
-import { _decorator, Animation, assetManager, Component, find, instantiate, Label, Node, Prefab, SpriteFrame, Vec2 } from 'cc';
+import { _decorator, Component, find, Label, Node, SpriteFrame, Vec2 } from 'cc';
 import { DrinkItemManager } from '../MapTool/DrinkItemManager';
 import { DrinkTile } from '../MapTool/DrinkTile';
 import { LevelMapBuilder } from '../MapTool/LevelMapBuilder';
@@ -52,9 +52,6 @@ export class OrderManager extends Component {
     @property({ tooltip: 'Số cốc mỗi đơn' })
     cupsPerOrder = 3;
 
-    @property({ tooltip: 'Thời gian hiển thị heart_emoji khi thắng (giây)' })
-    heartEmojiDuration = 2;
-
     @property({ tooltip: 'Cứ ngẫu nhiên [x, y] khách mới vào thì có 1 khách nói (CustomerChat). Khách giữa luôn nói khi bắt đầu màn' })
     chatEvery = new Vec2(2, 3);
 
@@ -71,7 +68,6 @@ export class OrderManager extends Component {
     private spawned = 0;
     /** Chặn input và phát lại kết quả sau khi màn đã kết thúc. */
     private finished = false;
-    private heartEmojiNode: Node | null = null;
     /** Số khách mới còn phải vào trước khi có khách nói tiếp. */
     private chatCountdown = 0;
 
@@ -110,7 +106,6 @@ export class OrderManager extends Component {
         this.served = 0;
         this.spawned = 0;
         this.finished = false;
-        if (this.heartEmojiNode?.isValid) this.heartEmojiNode.active = false;
         this.tray?.reset();
         // Mỗi vị trí bắt đầu chưa có đơn; gọi khách cho từng vị trí bên dưới.
         this.active = this.customers.map(() => null);
@@ -247,43 +242,7 @@ export class OrderManager extends Component {
         if (this.finished || this.served < this.totalOrders) return;
         this.finished = true;
         console.log('[OrderManager] WIN');
-        this.showHeartEmoji();
         this.node.emit(LEVEL_WIN_EVENT);
-    }
-
-    /** Tạo heart_emoji dưới Tray_0 và tự ẩn sau khoảng thời gian cấu hình. */
-    private showHeartEmoji(): void {
-        const tray = find('UI/Canvas3D/Scenes/ScaleGameplay/UI_SlotBar/UI_Orders/Tray_0', this.node.scene ?? undefined);
-        if (!tray) {
-            console.warn('[OrderManager] Không tìm thấy Tray_0 để hiển thị heart_emoji.');
-            return;
-        }
-
-        const show = (heart: Node): void => {
-            this.heartEmojiNode = heart;
-            heart.setPosition(0, 300, 0);
-            heart.active = true;
-            heart.getComponent(Animation)?.play();
-            this.scheduleOnce(() => {
-                if (heart.isValid) heart.active = false;
-            }, this.heartEmojiDuration);
-        };
-
-        if (this.heartEmojiNode?.isValid) {
-            show(this.heartEmojiNode);
-            return;
-        }
-
-        assetManager.loadAny('028719ee-c859-4300-9dd9-70e2c1a82c1c', (error, prefab: Prefab) => {
-            if (error || !prefab || !this.node.isValid || !tray.isValid) {
-                console.warn('[OrderManager] Không tải được prefab heart_emoji.', error);
-                return;
-            }
-            const heart = instantiate(prefab);
-            heart.name = 'heart_emoji';
-            tray.addChild(heart);
-            show(heart);
-        });
     }
 
     /** Thua khi khay đầy và không cốc lộ nào giao được cho khách đang chờ. */

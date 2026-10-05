@@ -110,9 +110,6 @@ export class CustomerController extends Component {
     @property({ type: Node, tooltip: 'Node đặt tim (để trống = tìm node con "heart_emoji" của Avatar)', group: GROUP.heartFx })
     heartAnchor: Node | null = null;
 
-    @property({ tooltip: 'Thời gian tim hiện trước khi bị tắt (giây)', group: GROUP.heartFx })
-    heartDuration = 1;
-
     @property({ type: CustomerFx, tooltip: 'Lớp hiệu ứng (lấp lánh, confetti, vệt gió); để trống = không có FX', group: GROUP.heartFx })
     fx: CustomerFx | null = null;
 
@@ -143,7 +140,6 @@ export class CustomerController extends Component {
         if (!this.homePosition) this.homePosition = this.slideNode.position.clone();
         const home = this.homePosition;
         this.node.active = true;
-        this.unschedule(this.hideHeart);
         this.hideHeart();
         if (this.praiseNode) this.praiseNode.active = false;
         this.sendToBack();
@@ -233,6 +229,8 @@ export class CustomerController extends Component {
                 this.fx?.twinkle(this.avatarCenter(), 60, 80, 3);
                 this.fx?.speedLines(this.slideNode, this.exitDuration);
                 this.slide(this.slideNode.position.x, home.x - this.slideDistance, this.exitDuration, 'quadIn', () => {
+                    // Tim là con của Avatar nên đã trượt ra cùng khách; giờ mới trả về pool.
+                    this.hideHeart();
                     this.node.active = false;
                     done();
                 });
@@ -331,13 +329,12 @@ export class CustomerController extends Component {
     }
 
     /**
-     * Lấy tim từ pool (PoolControl), gắn vào `heartAnchor` để đi theo khách khi trượt ra,
-     * tự trả về pool sau `heartDuration` giây.
+     * Lấy tim từ pool (PoolControl), gắn vào `heartAnchor` (con của Avatar) để đi theo khách khi trượt ra.
+     * Tim được giữ tới khi khách trượt ra xong (`leave`) rồi mới trả về pool.
      */
     private showHeart(): void {
         const pool = World.ins.poolManager;
         if (!pool || !this.heartAnchor) return;
-        this.unschedule(this.hideHeart);
         this.hideHeart();
         const heart = pool.spawn(PoolType.HeartEmoji);
         heart.node.setParent(this.heartAnchor);
@@ -345,7 +342,6 @@ export class CustomerController extends Component {
         // Node lấy lại từ pool không tự chạy lại playOnLoad nên phát anim thủ công.
         heart.getComponent(Animation)?.play();
         this.heart = heart;
-        this.scheduleOnce(this.hideHeart, this.heartDuration);
     }
 
     private hideHeart(): void {
