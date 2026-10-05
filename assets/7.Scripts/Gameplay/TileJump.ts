@@ -1,4 +1,4 @@
-import { Node, Tween, tween, Vec3 } from 'cc';
+import { Node, Sprite, Tween, tween, UIOpacity, UITransform, Vec3 } from 'cc';
 
 /**
  * Cho `node` nhảy theo đường vòng cung tới node `target` (cộng thêm `offset` theo world),
@@ -33,6 +33,47 @@ export function jumpTo(node: Node, parent: Node, target: Node, offset: Vec3 | nu
         .call(() => {
             node.setParent(parent, true);
             done?.();
+        })
+        .start();
+}
+
+/**
+ * Phần 1 của cú bay: cốc nhích lên một đoạn ngắn, thẻ nền (Sprite trên node gốc) phóng to và
+ * mờ dần rồi biến mất; xong gọi `done` để bắt đầu phần 2 (thường là `jumpTo`).
+ * Tween nâng chạy trên chính `node`, nên nếu `jumpTo` được gọi cho node này giữa chừng (ví dụ
+ * khay dồn slot) thì phần nâng bị hủy cùng `done`. Hiệu ứng thẻ chạy trên node riêng nên vẫn chạy hết.
+ */
+export function liftOff(node: Node, done: () => void, height = 40, duration = 0.15, cardScale = 1.35): void {
+    Tween.stopAllByTarget(node);
+    fadeCard(node, duration, cardScale);
+    tween(node)
+        .by(duration, { position: new Vec3(0, height, 0) }, { easing: 'quadOut' })
+        .call(() => {
+            if (node.isValid) done();
+        })
+        .start();
+}
+
+/** Tắt thẻ nền và thay bằng một bản sao nằm sau cốc, phóng to tới `scale` và mờ về 0 rồi tự hủy. */
+function fadeCard(node: Node, duration: number, scale: number): void {
+    const card = node.getComponent(Sprite);
+    if (!card || !card.enabled) return;
+    card.enabled = false;
+    const size = node.getComponent(UITransform)?.contentSize;
+    const fx = new Node('CardFx');
+    fx.layer = node.layer;
+    node.insertChild(fx, 0);
+    fx.addComponent(UITransform).setContentSize(size?.width ?? 100, size?.height ?? 100);
+    const sprite = fx.addComponent(Sprite);
+    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    sprite.spriteFrame = card.spriteFrame;
+    sprite.color = card.color;
+    const opacity = fx.addComponent(UIOpacity);
+    tween(fx).to(duration, { scale: new Vec3(scale, scale, 1) }, { easing: 'quadOut' }).start();
+    tween(opacity)
+        .to(duration, { opacity: 0 }, { easing: 'quadIn' })
+        .call(() => {
+            if (fx.isValid) fx.destroy();
         })
         .start();
 }

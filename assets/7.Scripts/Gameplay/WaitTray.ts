@@ -1,6 +1,6 @@
-import { _decorator, Component, Node, Sprite } from 'cc';
+import { _decorator, Component, Node } from 'cc';
 import { DrinkTile } from '../MapTool/DrinkTile';
-import { jumpTo } from './TileJump';
+import { jumpTo, liftOff } from './TileJump';
 const { ccclass, property } = _decorator;
 
 /**
@@ -15,6 +15,15 @@ export class WaitTray extends Component {
 
     @property({ tooltip: 'Độ cao cung nhảy khi cốc vào khay' })
     jumpHeight = 150;
+
+    @property({ tooltip: 'Cốc nhích lên bao nhiêu px trước khi bay vào khay (liftOff)' })
+    liftHeight = 40;
+
+    @property({ tooltip: 'Thời gian cốc nhích lên và thẻ nền mờ đi (giây)' })
+    liftDuration = 0.15;
+
+    @property({ tooltip: 'Thẻ nền phóng to tới bao nhiêu lần trong lúc mờ đi' })
+    liftCardScale = 1.35;
 
     /** Danh sách cốc đang chờ; thứ tự phần tử khớp với thứ tự slot và luôn được dồn trái. */
     private tiles: DrinkTile[] = [];
@@ -36,18 +45,19 @@ export class WaitTray extends Component {
     }
 
     /**
-     * Thêm cốc vào slot kế tiếp. Trả về false nếu khay đầy;
-     * Sprite trên node gốc là hình thẻ Tile nên tắt nó để chỉ còn thấy cốc con.
+     * Thêm cốc vào slot kế tiếp. Trả về false nếu khay đầy.
+     * Cốc nhích lên và thẻ nền mờ đi (liftOff) trước, rồi mới nhảy vào slot.
      */
     add(tile: DrinkTile): boolean {
         if (this.isFull()) return false;
-        const tileSprite = tile.getComponent(Sprite);
-        if (tileSprite) tileSprite.enabled = false;
 
         // Ghi nhận ngay để slot này được xem là đã chiếm trong lúc cốc còn đang bay.
         this.tiles.push(tile);
-        // Index mới nhất là slot trống đầu tiên vì danh sách luôn được dồn trái.
-        this.place(tile, this.tiles.length - 1, this.jumpHeight);
+        // Tính slot lúc bắt đầu nhảy vì khay có thể đã dồn trái trong lúc cốc đang nhích lên.
+        liftOff(tile.node, () => {
+            const index = this.tiles.indexOf(tile);
+            if (index >= 0) this.place(tile, index, this.jumpHeight);
+        }, this.liftHeight, this.liftDuration, this.liftCardScale);
         return true;
     }
 
