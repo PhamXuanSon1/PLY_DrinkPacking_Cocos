@@ -20,14 +20,11 @@ export class DrinkItemManager extends Component {
     @property({ type: Node, tooltip: 'Node chứa bản đồ (LevelMapBuilder). Để trống = chính node này' })
     boardRoot: Node | null = null;
 
-    @property({ tooltip: 'Tint for tiles covered by a higher layer' })
+    @property({ tooltip: 'Màu phủ cho ô bị che bởi lớp cao hơn' })
     coveredColor = new Color(168, 162, 158, 255);
 
-    @property({ tooltip: 'Tint for the cup of a covered tile (game keeps cups bright, only the card turns grey)' })
-    coveredCupColor = new Color(230, 230, 230, 255);
-
     /** Bật trong Inspector để quét lại bản đồ; giá trị tự trở về false sau khi kích hoạt. */
-    @property({ tooltip: 'Tick to re-scan tiles and recompute covered state' })
+    @property({ tooltip: 'Đánh dấu để quét lại các ô và tính lại trạng thái bị che' })
     get refreshNow(): boolean {
         return false;
     }
@@ -36,7 +33,7 @@ export class DrinkItemManager extends Component {
     }
 
     /** Tóm tắt kết quả lần cập nhật gần nhất: tổng số ô, số ô bị che và số ô có thể chọn. */
-    @property({ readonly: true, tooltip: 'Result of the last refresh' })
+    @property({ readonly: true, tooltip: 'Kết quả của lần cập nhật gần nhất' })
     info = '';
 
     /** Tất cả DrinkTile nằm dưới node quản lý, bao gồm cả ô đã được thu thập. */
@@ -73,10 +70,10 @@ export class DrinkItemManager extends Component {
         for (const t of onBoard) {
             // Chỉ ô ở lớp cao hơn mới che được ô hiện tại; chỉ cần một ô chồng lấp là đủ.
             t.covered = onBoard.some(o => o.layer > t.layer && this.overlaps(t, o));
-            t.setTint(t.covered ? this.coveredColor : Color.WHITE, t.covered ? this.coveredCupColor : Color.WHITE);
+            t.setTint(t.covered ? this.coveredColor : Color.WHITE);
             if (t.covered) covered++;
         }
-        this.info = `${onBoard.length} tiles, ${covered} covered, ${onBoard.length - covered} selectable`;
+        this.info = `${onBoard.length} ô, ${covered} ô bị che, ${onBoard.length - covered} ô có thể chọn`;
         return covered;
     }
 
