@@ -26,7 +26,7 @@
   "executeJavascriptSafetyChecks": true,
   "autostart": true,
   "maxInteractionLogEntries": 50,
-  "lastClientTargetId": "claude_code",
+  "lastClientTargetId": "codex",
   "activeToolProfileName": "",
   "savedToolProfiles": [],
   "language": "auto"
