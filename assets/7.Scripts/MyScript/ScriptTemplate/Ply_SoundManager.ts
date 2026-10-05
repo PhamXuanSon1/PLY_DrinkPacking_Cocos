@@ -3,42 +3,22 @@ import { Ply_Singleton } from './Ply_Singleton';
 const { ccclass, property } = _decorator;
 
 /**
- * Enum cac loai hieu ung am thanh (FX).
+ * Enum cac loai hieu ung am thanh (FX): moi file SFX trong assets/4.Sounds la mot loai.
+ * Nhac nen (bgm.mp3) phat qua AudioSource `bgm1`.
  */
 export enum FxType {
-    ClickBox = 0,
-    PickItem = 1,
-    HeavyWood = 2,
-    SmallWood = 3,
-    Cloth = 4,
-    dropMetal = 5,
-    Glass = 6,
-    dropOnFloor = 7,
-    cat1 = 8,
-    cat2 = 9,
-    cat3 = 10,
-    water = 11,
-    burnOn = 12,
-    bookOpen = 13,
-    CapyDrop = 14,
-    Grass = 15,
-    Chair = 16,
-    CoinBag = 17,
-    GoldChest = 18,
-    WoodenFish = 19,
-    Window = 20,
-    WoodenDoor = 21,
-    Skeleton = 22,
-    WoodenChair = 23,
-    ComCop = 24,
-    Rem = 25,
-    ClothesDrop = 26,
-    Decor = 27,
-    Fail = 28,
+    TapTile = 0,
+    CollectCombo = 1,
+    CustomerDone = 2,
+    StarToTable = 3,
+    WaitAreaSlot = 4,
+    DoorOpen = 5,
+    LevelWin = 6,
+    LevelLose = 7,
 }
 Enum(FxType);
 
-const FX_TYPE_COUNT = 29;
+const FX_TYPE_COUNT = 8;
 
 /**
  * Cau hinh du lieu am thanh.
@@ -57,98 +37,46 @@ class SoundData {
 }
 
 /**
- * Cau hinh FX Audio - chua tat ca du lieu am thanh hieu ung.
- * Moi truong tuong ung voi mot gia tri trong enum FxType.
+ * Cau hinh FX Audio - moi truong la mot file SFX trong assets/4.Sounds (xem FX_FIELDS).
  */
 @ccclass('FxAudio')
 class FxAudio {
-    @property(SoundData)
-    clickBox: SoundData = new SoundData();
+    @property({ type: SoundData, tooltip: 'SFX_Tap_Tile - Cham tile' })
+    tapTile: SoundData = new SoundData();
 
-    @property(SoundData)
-    pickItem: SoundData = new SoundData();
+    @property({ type: SoundData, tooltip: 'SFX_Collect_Combo_01 - Hoan thanh combo' })
+    collectCombo: SoundData = new SoundData();
 
-    @property(SoundData)
-    heavyWood: SoundData = new SoundData();
+    @property({ type: SoundData, tooltip: 'SFX_Customer_Done - Khach hoan tat don' })
+    customerDone: SoundData = new SoundData();
 
-    @property(SoundData)
-    smallWood: SoundData = new SoundData();
+    @property({ type: SoundData, tooltip: 'SFX_Star_To_Table - Sao bay ve ban' })
+    starToTable: SoundData = new SoundData();
 
-    @property(SoundData)
-    cloth: SoundData = new SoundData();
+    @property({ type: SoundData, tooltip: 'SFX_Wait_Area_Slot - Hieu ung o cho' })
+    waitAreaSlot: SoundData = new SoundData();
 
-    @property(SoundData)
-    dropMetal: SoundData = new SoundData();
+    @property({ type: SoundData, tooltip: 'SFX_Door_Open - Mo cua' })
+    doorOpen: SoundData = new SoundData();
 
-    @property(SoundData)
-    glass: SoundData = new SoundData();
+    @property({ type: SoundData, tooltip: 'SFX_Level_Win - Thang level' })
+    levelWin: SoundData = new SoundData();
 
-    @property(SoundData)
-    dropOnFloor: SoundData = new SoundData();
-
-    @property(SoundData)
-    cat1: SoundData = new SoundData();
-
-    @property(SoundData)
-    cat2: SoundData = new SoundData();
-
-    @property(SoundData)
-    cat3: SoundData = new SoundData();
-
-    @property(SoundData)
-    water: SoundData = new SoundData();
-
-    @property(SoundData)
-    burnOn: SoundData = new SoundData();
-
-    @property(SoundData)
-    bookOpen: SoundData = new SoundData();
-
-    @property(SoundData)
-    capyDrop: SoundData = new SoundData();
-
-    @property(SoundData)
-    grass: SoundData = new SoundData();
-
-    @property(SoundData)
-    chair: SoundData = new SoundData();
-
-    @property(SoundData)
-    coinBag: SoundData = new SoundData();
-
-    @property(SoundData)
-    goldChest: SoundData = new SoundData();
-
-    @property(SoundData)
-    woodenFish: SoundData = new SoundData();
-
-    @property(SoundData)
-    window: SoundData = new SoundData();
-
-    @property(SoundData)
-    woodenDoor: SoundData = new SoundData();
-
-    @property(SoundData)
-    skeleton: SoundData = new SoundData();
-
-    @property(SoundData)
-    woodenChair: SoundData = new SoundData();
-
-    @property(SoundData)
-    comCop: SoundData = new SoundData();
-
-    @property(SoundData)
-    rem: SoundData = new SoundData();
-
-    @property(SoundData)
-    clothesDrop: SoundData = new SoundData();
-
-    @property(SoundData)
-    decor: SoundData = new SoundData();
-
-    @property(SoundData)
-    fail: SoundData = new SoundData();
+    @property({ type: SoundData, tooltip: 'SFX_Level_Lose - Thua level' })
+    levelLose: SoundData = new SoundData();
 }
+
+/** Ten truong trong FxAudio theo tung FxType. */
+const FX_FIELDS: Record<FxType, keyof FxAudio> = {
+    [FxType.TapTile]: 'tapTile',
+    [FxType.CollectCombo]: 'collectCombo',
+    [FxType.CustomerDone]: 'customerDone',
+    [FxType.StarToTable]: 'starToTable',
+    [FxType.WaitAreaSlot]: 'waitAreaSlot',
+    [FxType.DoorOpen]: 'doorOpen',
+    [FxType.LevelWin]: 'levelWin',
+    [FxType.LevelLose]: 'levelLose',
+};
 
 /**
  * Quan ly am thanh duoc chuyen tu Unity Ply_SoundManager.
@@ -213,14 +141,14 @@ export class Ply_SoundManager extends Ply_Singleton {
     }
 
     /**
-     * Sound Fail (spawn FalseIcon): neu dang phat do thi DUNG ngay va phat lai tu dau.
+     * Sound thua (LevelLose): neu dang phat do thi DUNG ngay va phat lai tu dau.
      */
     public playFail(): void {
         if (this.isMute) return;
-        const index = FxType.Fail as number;
+        const index = FxType.LevelLose as number;
         const src = this.fxSources[index];
         if (src && src.playing) src.stop();
-        this.playFx(FxType.Fail);
+        this.playFx(FxType.LevelLose);
     }
 
     /**
@@ -453,38 +381,8 @@ export class Ply_SoundManager extends Ply_Singleton {
      * Lay SoundData tuong ung voi FxType.
      */
     private getSoundData(type: FxType): SoundData | null {
-        switch (type) {
-            case FxType.ClickBox: return this.fxAudio.clickBox;
-            case FxType.PickItem: return this.fxAudio.pickItem;
-            case FxType.HeavyWood: return this.fxAudio.heavyWood;
-            case FxType.SmallWood: return this.fxAudio.smallWood;
-            case FxType.Cloth: return this.fxAudio.cloth;
-            case FxType.dropMetal: return this.fxAudio.dropMetal;
-            case FxType.Glass: return this.fxAudio.glass;
-            case FxType.dropOnFloor: return this.fxAudio.dropOnFloor;
-            case FxType.cat1: return this.fxAudio.cat1;
-            case FxType.cat2: return this.fxAudio.cat2;
-            case FxType.cat3: return this.fxAudio.cat3;
-            case FxType.water: return this.fxAudio.water;
-            case FxType.burnOn: return this.fxAudio.burnOn;
-            case FxType.bookOpen: return this.fxAudio.bookOpen;
-            case FxType.CapyDrop: return this.fxAudio.capyDrop;
-            case FxType.Grass: return this.fxAudio.grass;
-            case FxType.Chair: return this.fxAudio.chair;
-            case FxType.CoinBag: return this.fxAudio.coinBag;
-            case FxType.GoldChest: return this.fxAudio.goldChest;
-            case FxType.WoodenFish: return this.fxAudio.woodenFish;
-            case FxType.Window: return this.fxAudio.window;
-            case FxType.WoodenDoor: return this.fxAudio.woodenDoor;
-            case FxType.Skeleton: return this.fxAudio.skeleton;
-            case FxType.WoodenChair: return this.fxAudio.woodenChair;
-            case FxType.ComCop: return this.fxAudio.comCop;
-            case FxType.Rem: return this.fxAudio.rem;
-            case FxType.ClothesDrop: return this.fxAudio.clothesDrop;
-            case FxType.Decor: return this.fxAudio.decor;
-            case FxType.Fail: return this.fxAudio.fail;
-            default: return null;
-        }
+        const field = FX_FIELDS[type];
+        return field ? this.fxAudio[field] : null;
     }
 
     /**

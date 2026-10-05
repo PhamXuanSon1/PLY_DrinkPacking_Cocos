@@ -158,7 +158,7 @@ export class ItemController extends Component implements IPointerHandler {
             : this.node.worldPosition.clone();
 
         // 1. Phát âm thanh Pick từ Ply_SoundManager
-        Ply_SoundManager.Ins?.playFx(FxType.PickItem);
+        Ply_SoundManager.Ins?.playFx(FxType.TapTile);
 
         // 2. Nhấc item: có nhíp -> bật nhíp tại con trỏ, item làm con của DragPosition và kéo NHÍP;
         //    không có -> đưa item lên lớp kéo như cũ. Sau đó scale item về ĐÚNG world scale
@@ -466,7 +466,7 @@ export class ItemController extends Component implements IPointerHandler {
             if (fxTypes.length > 0) {
                 Ply_SoundManager.Ins?.playFxSequence(fxTypes);
             } else {
-                Ply_SoundManager.Ins?.playFx(FxType.HeavyWood);
+                Ply_SoundManager.Ins?.playFx(FxType.CustomerDone);
             }
 
 

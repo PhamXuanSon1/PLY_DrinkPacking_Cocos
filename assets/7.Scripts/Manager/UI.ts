@@ -90,7 +90,7 @@ export class UI extends Component {
         this.offHand();
         this.endcard.active = true;
         this.bindingToStore();       
-        Ply_SoundManager.Ins?.playFx(FxType.dropOnFloor);    
+        Ply_SoundManager.Ins?.playFx(FxType.LevelLose);    
     }
 
 
@@ -100,7 +100,7 @@ export class UI extends Component {
         this.offHand();
         this.winCard.active = true;
         this.bindingToStore();  
-        Ply_SoundManager.Ins?.playFx(FxType.GoldChest);      
+        Ply_SoundManager.Ins?.playFx(FxType.LevelWin);      
     }
 
     offHand() {
