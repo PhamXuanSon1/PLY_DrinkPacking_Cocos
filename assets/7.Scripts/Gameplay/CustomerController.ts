@@ -1,4 +1,4 @@
-import { _decorator, Color, Component, Node, Sprite, SpriteFrame, UITransform } from 'cc';
+import { _decorator, Color, Component, Node, Sprite, SpriteFrame, Tween, UITransform, Vec3, tween } from 'cc';
 import { jumpTo } from './TileJump';
 const { ccclass, property } = _decorator;
 
@@ -35,12 +35,29 @@ export class CustomerController extends Component {
     @property({ tooltip: 'Độ cao cung nhảy của cốc khi giao cho khách' })
     jumpHeight = 150;
 
+    @property({ tooltip: 'Khoảng cách khách trượt vào / ra ở bên trái (px)' })
+    slideDistance = 800;
+
+    @property({ tooltip: 'Thời gian khách trượt vào / ra (giây)' })
+    slideDuration = 0.5;
+
     /** Các node cốc thật đã giao cho khách hiện tại. */
     private delivered: Node[] = [];
+    /** Vị trí đứng đặt trong scene; khách trượt vào tới đây và trượt ra từ đây. */
+    private homePosition: Vec3 | null = null;
+    /** Target của tween trượt vào / ra (xem `slide`). */
+    private readonly slideState = { x: 0 };
 
-    /** Hiện khách mới với ảnh mờ của loại đồ uống gọi. */
+    onLoad(): void {
+        this.homePosition = this.node.position.clone();
+    }
+
+    /** Hiện khách mới với ảnh mờ của loại đồ uống gọi; khách trượt vào từ bên trái. */
     show(avatarFrame: SpriteFrame | null, drinkFrame: SpriteFrame | null): void {
+        if (!this.homePosition) this.homePosition = this.node.position.clone();
+        const home = this.homePosition;
         this.node.active = true;
+        this.slide(home.x - this.slideDistance, home.x);
         if (this.avatar && avatarFrame) this.avatar.spriteFrame = avatarFrame;
         for (const ghost of this.ghosts) {
             ghost.node.active = true;
@@ -74,13 +91,44 @@ export class CustomerController extends Component {
         }, 0.35, this.jumpHeight);
     }
 
-    /** Đủ đơn: đứng thêm một lúc rồi ẩn cùng các cốc; gọi `done` khi đã ẩn. */
+    /** Đủ đơn: đứng thêm một lúc, trượt ra bên trái cùng các cốc rồi ẩn; gọi `done` khi đã ẩn. */
     leave(done: () => void): void {
         this.scheduleOnce(() => {
-            for (const n of this.delivered) n.destroy();
-            this.delivered = [];
-            this.node.active = false;
-            done();
+            const home = this.homePosition ?? this.node.position;
+            // Cốc đã là con của Cup_i nên trượt theo khách; hủy sau khi ra khỏi màn hình.
+            this.slide(this.node.position.x, home.x - this.slideDistance, () => {
+                for (const n of this.delivered) n.destroy();
+                this.delivered = [];
+                this.node.active = false;
+                done();
+            });
         }, this.doneHoldDuration);
+    }
+
+    /**
+     * Trượt node theo trục x (linear). Tween chạy trên `slideState` chứ không phải trên node,
+     * vì tween gắn vào Node bị dừng theo trạng thái active của node: `leave` tắt node rồi
+     * `show` bật lại ngay trong callback, khiến tween trượt vào bị kẹt ở vị trí xuất phát.
+     */
+    private slide(fromX: number, toX: number, done?: () => void): void {
+        Tween.stopAllByTarget(this.slideState);
+        const p = this.node.position;
+        this.node.setPosition(fromX, p.y, p.z);
+        this.slideState.x = fromX;
+        tween(this.slideState)
+            .to(this.slideDuration, { x: toX }, {
+                easing: 'linear',
+                onUpdate: () => {
+                    if (!this.node.isValid) return;
+                    const cur = this.node.position;
+                    this.node.setPosition(this.slideState.x, cur.y, cur.z);
+                },
+            })
+            .call(() => done?.())
+            .start();
+    }
+
+    onDestroy(): void {
+        Tween.stopAllByTarget(this.slideState);
     }
 }
