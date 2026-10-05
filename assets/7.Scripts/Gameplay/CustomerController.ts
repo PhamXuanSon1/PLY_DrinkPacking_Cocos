@@ -1,8 +1,21 @@
-import { _decorator, Animation, Color, Component, Node, Sprite, SpriteFrame, Tween, UITransform, Vec3, tween } from 'cc';
+import { _decorator, Animation, Color, Component, Label, Node, Sprite, SpriteFrame, Tween, UIOpacity, UITransform, Vec3, tween } from 'cc';
 import { World } from '../Manager/World';
 import { PoolMember, PoolType } from '../Pool/PoolMember';
-import { jumpTo } from './TileJump';
+import { CustomerChat } from './CustomerChat';
+import { CustomerFx } from './CustomerFx';
+import { jumpTo, liftOff } from './TileJump';
 const { ccclass, property } = _decorator;
+
+/** Các nhóm thuộc tính trong Inspector, mỗi nhóm là một header gập / mở được. */
+const GROUP = {
+    character: { id: 'character', name: 'Nhân vật & đĩa', displayOrder: 0, style: 'section' },
+    ghost: { id: 'ghost', name: 'Ảnh mờ (Ghost)', displayOrder: 1, style: 'section' },
+    slide: { id: 'slide', name: 'Trượt vào - ra', displayOrder: 2, style: 'section' },
+    deliver: { id: 'deliver', name: 'Giao cốc', displayOrder: 3, style: 'section' },
+    done: { id: 'done', name: 'Đủ đơn', displayOrder: 4, style: 'section' },
+    praise: { id: 'praise', name: 'Chữ khen', displayOrder: 5, style: 'section' },
+    heartFx: { id: 'heartFx', name: 'Tim & FX', displayOrder: 6, style: 'section' },
+};
 
 /**
  * Điều khiển một khách: avatar, hiển thị đơn (ảnh mờ, nhận cốc, dấu tick).
@@ -12,74 +25,132 @@ const { ccclass, property } = _decorator;
  * Customer (CustomerController)
  * ├── Avatar
  * │   └── heart_emoji (điểm sinh tim khi đủ đơn)
+ * ├── Praise         (chữ khen "Amazing", tùy chọn)
  * ├── Cup_0..2        (điểm đáp, mỗi node có con Ghost = ảnh mờ)
- * └── Tick_0..2
+ * ├── Tick_0..2
+ * └── Chat            (bong bóng lời thoại, xem CustomerChat)
  */
 @ccclass('CustomerController')
 export class CustomerController extends Component {
-    @property({ type: Sprite, tooltip: 'Sprite nhân vật' })
+    @property({ type: Sprite, tooltip: 'Sprite nhân vật', group: GROUP.character })
     avatar: Sprite | null = null;
 
-    @property({ type: [Node], tooltip: 'Điểm đáp của cốc trên đĩa (Cup_0..2), trái sang phải' })
+    @property({ type: [Node], tooltip: 'Điểm đáp của cốc trên đĩa (Cup_0..2), trái sang phải', group: GROUP.character })
     cupSlots: Node[] = [];
 
-    @property({ type: [Sprite], tooltip: 'Ảnh mờ đồ uống khách gọi, mỗi điểm đáp một ảnh (giữ chiều cao, rộng theo tỉ lệ ảnh)' })
-    ghosts: Sprite[] = [];
-
-    @property({ type: Color, tooltip: 'Màu tint của ảnh Ghost' })
-    ghostColor = new Color(99, 99, 99, 255);
-
-    @property({ slide: true, range: [0, 255, 1], tooltip: 'Độ trong mờ của ảnh Ghost (0–255)' })
-    ghostAlpha = 110;
-
-    @property({ type: [Node], tooltip: 'Dấu tick tương ứng từng cốc' })
+    @property({ type: [Node], tooltip: 'Dấu tick tương ứng từng cốc', group: GROUP.character })
     ticks: Node[] = [];
 
-    @property({ tooltip: 'Thời gian khách còn đứng sau khi đủ đơn rồi mới biến mất (giây)' })
-    doneHoldDuration = 0.3;
+    @property({ type: [Sprite], tooltip: 'Ảnh mờ đồ uống khách gọi, mỗi điểm đáp một ảnh (giữ chiều cao, rộng theo tỉ lệ ảnh)', group: GROUP.ghost })
+    ghosts: Sprite[] = [];
 
-    @property({ tooltip: 'Thời gian cốc thu nhỏ bay vào avatar khi đủ đơn (giây)' })
-    absorbDuration = 0.5;
+    @property({ type: Color, tooltip: 'Màu tint của ảnh Ghost', group: GROUP.ghost })
+    ghostColor = new Color(99, 99, 99, 255);
 
-    @property({ tooltip: 'Độ cao cung nhảy của cốc khi giao cho khách' })
-    jumpHeight = 150;
+    @property({ slide: true, range: [0, 255, 1], tooltip: 'Độ trong mờ của ảnh Ghost (0–255)', group: GROUP.ghost })
+    ghostAlpha = 110;
 
-    @property({ tooltip: 'Khoảng cách khách trượt vào / ra ở bên trái (px)' })
+    @property({ tooltip: 'Khoảng cách khách trượt vào / ra ở bên trái (px)', group: GROUP.slide })
     slideDistance = 800;
 
-    @property({ tooltip: 'Thời gian khách trượt vào / ra (giây)' })
+    @property({ tooltip: 'Thời gian khách trượt vào (giây)', group: GROUP.slide })
     slideDuration = 0.5;
 
-    @property({ type: Node, tooltip: 'Node đặt tim (để trống = tìm node con "heart_emoji" của Avatar)' })
+    @property({ tooltip: 'Thời gian khách trượt ra (giây), nhanh hơn lúc vào', group: GROUP.slide })
+    exitDuration = 0.2;
+
+    @property({ tooltip: 'Cốc nhích lên bao nhiêu px trước khi bay (liftOff)', group: GROUP.deliver })
+    liftHeight = 40;
+
+    @property({ tooltip: 'Thời gian cốc nhích lên và thẻ nền mờ đi (giây)', group: GROUP.deliver })
+    liftDuration = 0.15;
+
+    @property({ tooltip: 'Thẻ nền phóng to tới bao nhiêu lần trong lúc mờ đi', group: GROUP.deliver })
+    liftCardScale = 1.35;
+
+    @property({ tooltip: 'Độ cao cung nhảy của cốc khi giao cho khách', group: GROUP.deliver })
+    jumpHeight = 150;
+
+    @property({ tooltip: 'Độ ép dẹt khi cốc chạm đĩa (0.15 = ép 15%)', group: GROUP.deliver })
+    bounceSquash = 0.15;
+
+    @property({ tooltip: 'Thời gian cốc nhún 1 lần khi chạm đĩa (giây)', group: GROUP.deliver })
+    bounceDuration = 0.28;
+
+    @property({ tooltip: 'Cốc nhấc lên bao nhiêu px khi đủ đơn', group: GROUP.done })
+    raiseY = 25;
+
+    @property({ tooltip: 'Cốc phồng to bao nhiêu lần khi nhấc lên', group: GROUP.done })
+    raiseScale = 1.15;
+
+    @property({ tooltip: 'Thời gian cốc nhấc lên (giây)', group: GROUP.done })
+    raiseDuration = 0.15;
+
+    @property({ tooltip: 'Cốc giữ ở trên bao lâu trước khi biến mất (giây)', group: GROUP.done })
+    raiseHold = 0.15;
+
+    @property({ tooltip: 'Thời gian cốc thu nhỏ biến mất (giây)', group: GROUP.done })
+    popDuration = 0.12;
+
+    @property({ tooltip: 'Thời gian khách còn đứng sau khi đủ đơn rồi mới biến mất (giây)', group: GROUP.done })
+    doneHoldDuration = 0.3;
+
+    @property({ type: Node, tooltip: 'Chữ khen (ví dụ "Amazing") bật ra khi đủ đơn; để trống = không hiện', group: GROUP.praise })
+    praiseNode: Node | null = null;
+
+    @property({ type: [String], tooltip: 'Các chữ khen, mỗi lần đủ đơn chọn ngẫu nhiên một chữ; để trống = giữ chữ đang có trên Label', group: GROUP.praise })
+    praiseTexts: string[] = ['Amazing!', 'Great!', 'Awesome!', 'Perfect!', 'Excellent!', 'Wonderful!', 'Fantastic!', 'Nice!', 'Super!', 'Yummy!'];
+
+    @property({ tooltip: 'Thời gian chữ khen hiện (giây); khách chỉ đi ra sau khi chữ khen đã tắt', group: GROUP.praise })
+    praiseDuration = 0.8;
+
+    @property({ tooltip: 'Chữ khen xuất phát thấp hơn vị trí đặt bao nhiêu px rồi bay lên khi hiện', group: GROUP.praise })
+    praiseRise = 60;
+
+    @property({ type: Node, tooltip: 'Node đặt tim (để trống = tìm node con "heart_emoji" của Avatar)', group: GROUP.heartFx })
     heartAnchor: Node | null = null;
 
-    @property({ tooltip: 'Thời gian tim hiện trước khi bị tắt (giây)' })
+    @property({ tooltip: 'Thời gian tim hiện trước khi bị tắt (giây)', group: GROUP.heartFx })
     heartDuration = 1;
+
+    @property({ type: CustomerFx, tooltip: 'Lớp hiệu ứng (lấp lánh, confetti, vệt gió); để trống = không có FX', group: GROUP.heartFx })
+    fx: CustomerFx | null = null;
 
     /** Các node cốc thật đã giao cho khách hiện tại. */
     private delivered: Node[] = [];
-    /** Vị trí đứng đặt trong scene; khách trượt vào tới đây và trượt ra từ đây. */
+    /** Vị trí đứng của Avatar đặt trong scene; Avatar trượt vào tới đây và trượt ra từ đây. */
     private homePosition: Vec3 | null = null;
     /** Target của tween trượt vào / ra (xem `slide`). */
     private readonly slideState = { x: 0 };
     /** Chiều cao Avatar đặt trong scene, dùng làm chuẩn khi đổi ảnh nhân vật. */
     private avatarHeight: number | null = null;
+    /** Vị trí gốc của chữ khen đặt trong scene (chữ bay lên khi mờ dần). */
+    private praiseHome: Vec3 | null = null;
     /** Tim đang hiện của khách hiện tại (lấy từ pool PoolType.HeartEmoji). */
     private heart: PoolMember | null = null;
 
     onLoad(): void {
-        this.homePosition = this.node.position.clone();
+        this.homePosition = this.slideNode.position.clone();
+        if (this.praiseNode) this.praiseNode.active = false;
         if (!this.heartAnchor) this.heartAnchor = this.avatar?.node.getChildByName('heart_emoji') ?? null;
     }
 
-    /** Hiện khách mới với ảnh mờ của loại đồ uống gọi; khách trượt vào từ bên trái. */
-    show(avatarFrame: SpriteFrame | null, drinkFrame: SpriteFrame | null): void {
-        if (!this.homePosition) this.homePosition = this.node.position.clone();
+    /**
+     * Hiện khách mới: ảnh mờ của đơn hiện ngay trên đĩa, Avatar trượt vào từ bên trái.
+     * `talk` = true: khách nói một câu (CustomerChat) ngay khi trượt vào xong.
+     */
+    show(avatarFrame: SpriteFrame | null, drinkFrame: SpriteFrame | null, talk = false): void {
+        if (!this.homePosition) this.homePosition = this.slideNode.position.clone();
         const home = this.homePosition;
         this.node.active = true;
         this.unschedule(this.hideHeart);
         this.hideHeart();
-        this.slide(home.x - this.slideDistance, home.x);
+        if (this.praiseNode) this.praiseNode.active = false;
+        this.sendToBack();
+        const chat = this.getComponent(CustomerChat);
+        chat?.stop();
+        this.slide(home.x - this.slideDistance, home.x, this.slideDuration, 'quadOut', talk ? () => chat?.say() : undefined);
+        this.fx?.speedLines(this.slideNode, this.slideDuration * 0.7);
         if (this.avatar && avatarFrame) {
             this.avatar.spriteFrame = avatarFrame;
             this.fitAvatar(avatarFrame);
@@ -100,12 +171,12 @@ export class CustomerController extends Component {
     receive(tile: Node, index: number, landed: () => void): void {
         const slot = this.cupSlots[index];
         this.delivered.push(tile);
-        // Trên đĩa chỉ hiện cốc: ẩn nền card và căn tâm của node con "Cup" vào điểm đáp.
-        const card = tile.getComponent(Sprite);
-        if (card) card.enabled = false;
+        // Trên đĩa chỉ hiện cốc: thẻ nền mờ đi lúc cốc nhích lên (liftOff), rồi căn tâm của
+        // node con "Cup" vào điểm đáp. Cốc lấy từ khay đã tắt thẻ nên liftOff chỉ nhích lên.
         const cup = tile.getChildByName('Cup');
         const offset = cup ? tile.worldPosition.clone().subtract(cup.worldPosition) : null;
-        jumpTo(tile, slot, slot, offset, () => {
+        liftOff(tile, () => jumpTo(tile, slot, slot, offset, () => {
+            this.snapFx(cup ?? tile);
             const ghost = this.ghosts[index];
             if (ghost) ghost.node.active = false;
             const tick = this.ticks[index];
@@ -113,68 +184,150 @@ export class CustomerController extends Component {
                 tick.active = true;
                 tick.setSiblingIndex(this.node.children.length - 1);
             }
-            landed();
-        }, 0.35, this.jumpHeight);
+            // Báo đã đáp sau khi nhún xong, để animation đủ đơn không cắt ngang cú nhún của cốc cuối.
+            this.bounce(tile, landed);
+        }, 0.35, this.jumpHeight), this.liftHeight, this.liftDuration, this.liftCardScale);
     }
 
-    /** Đủ đơn: cốc thu nhỏ bay vào avatar, đứng thêm một lúc, trượt ra bên trái rồi ẩn; gọi `done` khi đã ẩn. */
+    /** FX lúc cốc snap vào điểm đáp: lóe sáng + kim tuyến theo kích thước cốc trên màn hình. */
+    private snapFx(cup: Node): void {
+        if (!this.fx) return;
+        const box = cup.getComponent(UITransform)?.getBoundingBoxToWorld();
+        if (box) this.fx.snap(new Vec3(box.center.x, box.center.y, cup.worldPosition.z), box.width, box.height);
+        else this.fx.snap(cup.worldPosition, 80, 110);
+    }
+
+    /**
+     * Cốc nhún 1 lần khi chạm đĩa: ép dẹt xuống, bật dài lên, rồi về dáng cũ.
+     * Dời y theo tỉ lệ để đáy cốc gần như đứng yên trên đĩa.
+     */
+    private bounce(tile: Node, done: () => void): void {
+        const s = tile.scale.clone();
+        const p = tile.position.clone();
+        const k = this.bounceSquash;
+        const t = this.bounceDuration;
+        tween(tile)
+            .to(t * 0.25, { scale: new Vec3(s.x * (1 + k), s.y * (1 - k), s.z), position: new Vec3(p.x, p.y - 6, p.z) }, { easing: 'quadOut' })
+            .to(t * 0.35, { scale: new Vec3(s.x * (1 - k * 0.5), s.y * (1 + k * 0.7), s.z), position: new Vec3(p.x, p.y + 10, p.z) }, { easing: 'quadOut' })
+            .to(t * 0.4, { scale: s, position: p }, { easing: 'backOut' })
+            .call(done)
+            .start();
+    }
+
+    /**
+     * Đủ đơn (giống game gốc): tim hiện ngay, cốc nhấc lên phồng to rồi biến mất tại chỗ,
+     * chữ khen bật ra kèm vầng sáng + confetti, lấp lánh quanh khách; khi chữ khen tắt
+     * (và ít nhất `doneHoldDuration`) thì Avatar lướt nhanh ra bên trái kèm vệt gió,
+     * đi phía sau các khách khác; gọi `done` khi đã ẩn.
+     */
     leave(done: () => void): void {
-        this.absorbDrinks(() => {
-            this.showHeart();
+        this.getComponent(CustomerChat)?.stop();
+        this.showHeart();
+        for (const tick of this.ticks) tick.active = false;
+        this.popDrinks(() => {
+            this.showPraise();
+            this.twinkleAroundAvatar();
             this.scheduleOnce(() => {
-                const home = this.homePosition ?? this.node.position;
-                this.slide(this.node.position.x, home.x - this.slideDistance, () => {
+                const home = this.homePosition ?? this.slideNode.position;
+                this.sendToBack();
+                this.fx?.twinkle(this.avatarCenter(), 60, 80, 3);
+                this.fx?.speedLines(this.slideNode, this.exitDuration);
+                this.slide(this.slideNode.position.x, home.x - this.slideDistance, this.exitDuration, 'quadIn', () => {
                     this.node.active = false;
                     done();
                 });
-            }, this.doneHoldDuration);
+            }, Math.max(this.doneHoldDuration, this.praiseDuration));
         });
     }
 
-    /** Các cốc đã giao vừa thu nhỏ về 0 vừa bay vào tâm avatar trong `absorbDuration` giây rồi bị hủy. */
-    private absorbDrinks(done: () => void): void {
+    /** Vài ngôi sao trắng nhấp nháy quanh người khách. */
+    private twinkleAroundAvatar(): void {
+        const ut = this.avatar?.node.getComponent(UITransform);
+        const w = ut ? ut.width * 0.5 : 100;
+        const h = ut ? ut.height * 0.5 : 120;
+        this.fx?.twinkle(this.avatarCenter(), w, h, 6);
+    }
+
+    /** Tâm hình Avatar (world), không phụ thuộc anchor. */
+    private avatarCenter(): Vec3 {
+        const node = this.slideNode;
+        const box = node.getComponent(UITransform)?.getBoundingBoxToWorld();
+        return box ? new Vec3(box.center.x, box.center.y, node.worldPosition.z) : node.worldPosition.clone();
+    }
+
+    /**
+     * Đưa cả cụm khách (Tray chứa Customer) xuống dưới cùng trong UI_Orders để Avatar
+     * đang lướt đi phía sau các khách khác như game gốc.
+     */
+    private sendToBack(): void {
+        this.node.parent?.setSiblingIndex(0);
+    }
+
+    /** Các cốc đã giao nhấc lên và phồng to, giữ một chút rồi thu nhỏ về 0 tại chỗ và bị hủy. */
+    private popDrinks(done: () => void): void {
         const drinks = this.delivered.filter(n => n.isValid);
         this.delivered = [];
-        for (const tick of this.ticks) tick.active = false;
-        const avatar = this.avatar?.node;
-        if (!drinks.length || !avatar) {
-            for (const n of drinks) n.destroy();
+        if (!drinks.length) {
             done();
             return;
         }
-        // Đích là tâm hình của Avatar (world), không phụ thuộc anchor của Avatar.
-        const avatarUt = avatar.getComponent(UITransform);
-        const center = avatarUt?.getBoundingBoxToWorld().center;
-        const target = center ? new Vec3(center.x, center.y, avatar.worldPosition.z) : avatar.worldPosition.clone();
         let remaining = drinks.length;
         for (const drink of drinks) {
             Tween.stopAllByTarget(drink);
-            // Tính trong world space: tâm cốc (node con "Cup") đi từ chỗ đứng tới tâm Avatar,
-            // node card lệch so với cốc một đoạn `offset` co lại theo scale.
-            const cup = drink.getChildByName('Cup');
-            const start = (cup ?? drink).worldPosition.clone();
-            const offset = cup ? drink.worldPosition.clone().subtract(cup.worldPosition) : new Vec3();
-            const startScale = drink.scale.clone();
-            const pos = new Vec3();
-            const state = { k: 0 };
-            tween(state)
-                .to(this.absorbDuration, { k: 1 }, {
-                    easing: 'quadIn',
-                    onUpdate: () => {
-                        if (!drink.isValid) return;
-                        const s = 1 - state.k;
-                        Vec3.lerp(pos, start, target, state.k);
-                        pos.add3f(offset.x * s, offset.y * s, 0);
-                        drink.setWorldPosition(pos);
-                        drink.setScale(startScale.x * s, startScale.y * s, startScale.z);
-                    },
-                })
+            const base = drink.scale.clone();
+            const up = drink.position.clone();
+            up.y += this.raiseY;
+            const big = new Vec3(base.x * this.raiseScale, base.y * this.raiseScale, base.z);
+            tween(drink)
+                .to(this.raiseDuration, { position: up, scale: big }, { easing: 'backOut' })
+                .delay(this.raiseHold)
+                .to(this.popDuration, { scale: new Vec3(0, 0, base.z) }, { easing: 'backIn' })
                 .call(() => {
+                    if (drink.isValid) this.fx?.landSparkle((drink.getChildByName('Cup') ?? drink).worldPosition);
                     if (drink.isValid) drink.destroy();
                     if (--remaining === 0) done();
                 })
                 .start();
         }
+    }
+
+    /**
+     * Chữ khen vừa bay lên từ dưới (`praiseRise`) vừa bật to rồi về cỡ thường (kèm vầng sáng
+     * phía sau và confetti), phồng nhẹ, cuối cùng bay tiếp lên và mờ dần; tự ẩn sau `praiseDuration` giây.
+     */
+    private showPraise(): void {
+        const praise = this.praiseNode;
+        if (!praise) return;
+        Tween.stopAllByTarget(praise);
+        const op = praise.getComponent(UIOpacity) ?? praise.addComponent(UIOpacity);
+        Tween.stopAllByTarget(op);
+        if (!this.praiseHome) this.praiseHome = praise.position.clone();
+        const home = this.praiseHome;
+        const label = praise.getComponent(Label);
+        if (label && this.praiseTexts.length > 0) {
+            label.string = this.praiseTexts[Math.floor(Math.random() * this.praiseTexts.length)];
+        }
+        praise.active = true;
+        // Vầng sáng + confetti đặt ở vị trí đích; chữ xuất phát thấp hơn rồi bay lên tới đó.
+        praise.setPosition(home);
+        this.fx?.celebrate(praise.worldPosition, praise);
+        praise.setPosition(home.x, home.y - this.praiseRise, home.z);
+        praise.setScale(0, 0, 1);
+        op.opacity = 255;
+        const fade = 0.25;
+        const hold = Math.max(0, this.praiseDuration - 0.25 - fade);
+        tween(praise)
+            .to(0.15, { scale: new Vec3(1.25, 1.25, 1), position: new Vec3(home.x, home.y + 8, home.z) }, { easing: 'quadOut' })
+            .to(0.1, { scale: Vec3.ONE, position: home }, { easing: 'sineOut' })
+            .to(hold, { scale: new Vec3(1.08, 1.08, 1) }, { easing: 'sineInOut' })
+            .to(fade, { position: new Vec3(home.x, home.y + 25, home.z) }, { easing: 'sineOut' })
+            .call(() => {
+                praise.active = false;
+                praise.setPosition(home);
+                op.opacity = 255;
+            })
+            .start();
+        tween(op).delay(0.25 + hold).to(fade, { opacity: 0 }).start();
     }
 
     /**
@@ -214,23 +367,29 @@ export class CustomerController extends Component {
         ut.setContentSize(this.avatarHeight * rect.width / rect.height, this.avatarHeight);
     }
 
+    /** Node trượt vào / ra: chỉ Avatar (đĩa và cốc đứng yên); không có Avatar thì cả khách. */
+    private get slideNode(): Node {
+        return this.avatar?.node ?? this.node;
+    }
+
     /**
-     * Trượt node theo trục x (linear). Tween chạy trên `slideState` chứ không phải trên node,
+     * Trượt `slideNode` theo trục x. Tween chạy trên `slideState` chứ không phải trên node,
      * vì tween gắn vào Node bị dừng theo trạng thái active của node: `leave` tắt node rồi
      * `show` bật lại ngay trong callback, khiến tween trượt vào bị kẹt ở vị trí xuất phát.
      */
-    private slide(fromX: number, toX: number, done?: () => void): void {
+    private slide(fromX: number, toX: number, duration: number, easing: 'linear' | 'quadIn' | 'quadOut', done?: () => void): void {
         Tween.stopAllByTarget(this.slideState);
-        const p = this.node.position;
-        this.node.setPosition(fromX, p.y, p.z);
+        const target = this.slideNode;
+        const p = target.position;
+        target.setPosition(fromX, p.y, p.z);
         this.slideState.x = fromX;
         tween(this.slideState)
-            .to(this.slideDuration, { x: toX }, {
-                easing: 'linear',
+            .to(duration, { x: toX }, {
+                easing,
                 onUpdate: () => {
-                    if (!this.node.isValid) return;
-                    const cur = this.node.position;
-                    this.node.setPosition(this.slideState.x, cur.y, cur.z);
+                    if (!target.isValid) return;
+                    const cur = target.position;
+                    target.setPosition(this.slideState.x, cur.y, cur.z);
                 },
             })
             .call(() => done?.())

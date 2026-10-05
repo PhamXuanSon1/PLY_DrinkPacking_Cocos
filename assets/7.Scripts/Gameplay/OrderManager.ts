@@ -1,4 +1,4 @@
-import { _decorator, Animation, assetManager, Component, find, instantiate, Label, Node, Prefab, SpriteFrame } from 'cc';
+import { _decorator, Animation, assetManager, Component, find, instantiate, Label, Node, Prefab, SpriteFrame, Vec2 } from 'cc';
 import { DrinkItemManager } from '../MapTool/DrinkItemManager';
 import { DrinkTile } from '../MapTool/DrinkTile';
 import { LevelMapBuilder } from '../MapTool/LevelMapBuilder';
@@ -55,6 +55,9 @@ export class OrderManager extends Component {
     @property({ tooltip: 'Thời gian hiển thị heart_emoji khi thắng (giây)' })
     heartEmojiDuration = 2;
 
+    @property({ tooltip: 'Cứ ngẫu nhiên [x, y] khách mới vào thì có 1 khách nói (CustomerChat). Khách giữa luôn nói khi bắt đầu màn' })
+    chatEvery = new Vec2(2, 3);
+
     /** Đơn theo từng vị trí khách; null nghĩa là vị trí đó đang trống hoặc chưa có đơn mới. */
     private active: (Order | null)[] = [];
     /** Số cốc mỗi loại chưa được dành cho đơn nào; giảm khi tạo đơn mới. */
@@ -66,6 +69,8 @@ export class OrderManager extends Component {
     /** Chặn input và phát lại kết quả sau khi màn đã kết thúc. */
     private finished = false;
     private heartEmojiNode: Node | null = null;
+    /** Số khách mới còn phải vào trước khi có khách nói tiếp. */
+    private chatCountdown = 0;
 
     start(): void {
         // Chờ một frame để DrinkItemManager.start() quét xong các cốc.
@@ -105,10 +110,13 @@ export class OrderManager extends Component {
         this.tray?.reset();
         // Mỗi vị trí bắt đầu chưa có đơn; gọi khách cho từng vị trí bên dưới.
         this.active = this.customers.map(() => null);
+        // Lượt đầu chỉ khách đứng giữa nói; sau đó đếm lại từ đầu.
+        const middle = this.middleSlot();
         this.customers.forEach((c, i) => {
             c.node.active = false;
-            this.spawnCustomer(i);
+            this.spawnCustomer(i, i === middle);
         });
+        this.resetChatCountdown();
         this.updateLabel();
     }
 
@@ -163,8 +171,28 @@ export class OrderManager extends Component {
         });
     }
 
-    /** Gọi khách mới vào chỗ `slot` nếu còn đơn, rồi giao luôn cốc phù hợp đang có trong khay. */
-    private spawnCustomer(slot: number): void {
+    /** Chỗ đứng gần giữa màn hình nhất (theo vị trí world x của khách). */
+    private middleSlot(): number {
+        const xs = this.customers.map(c => c.node.worldPosition.x);
+        const center = (Math.min(...xs) + Math.max(...xs)) / 2;
+        let best = 0;
+        xs.forEach((x, i) => {
+            if (Math.abs(x - center) < Math.abs(xs[best] - center)) best = i;
+        });
+        return best;
+    }
+
+    private resetChatCountdown(): void {
+        const min = Math.round(this.chatEvery.x);
+        const max = Math.max(min, Math.round(this.chatEvery.y));
+        this.chatCountdown = min + Math.floor(Math.random() * (max - min + 1));
+    }
+
+    /**
+     * Gọi khách mới vào chỗ `slot` nếu còn đơn, rồi giao luôn cốc phù hợp đang có trong khay.
+     * `talk` không truyền: tự quyết định theo `chatEvery` (cứ 2–3 khách thì 1 khách nói khi vào).
+     */
+    private spawnCustomer(slot: number, talk?: boolean): void {
         const drinkId = this.pickDrink();
         if (drinkId === null) return;
         this.unassigned.set(drinkId, this.unassigned.get(drinkId)! - this.cupsPerOrder);
@@ -173,7 +201,11 @@ export class OrderManager extends Component {
         // Xoay vòng avatar theo thứ tự khách được tạo.
         const avatar = this.avatarFrames.length ? this.avatarFrames[this.spawned % this.avatarFrames.length] : null;
         this.spawned++;
-        this.customers[slot].show(avatar, this.mapBuilder?.drinkFrames[drinkId] ?? null);
+        if (talk === undefined) {
+            talk = --this.chatCountdown <= 0;
+            if (talk) this.resetChatCountdown();
+        }
+        this.customers[slot].show(avatar, this.mapBuilder?.drinkFrames[drinkId] ?? null, talk);
 
         // Tự chuyển cốc cùng loại đang chờ trong khay sang đơn mới.
         for (const tile of this.tray?.take(drinkId, this.cupsPerOrder) ?? []) this.deliver(order, tile);
