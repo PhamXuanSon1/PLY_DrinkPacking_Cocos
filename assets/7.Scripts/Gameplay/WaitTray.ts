@@ -1,6 +1,7 @@
 import { _decorator, Component, Node } from 'cc';
 import { DrinkTile } from '../MapTool/DrinkTile';
 import { jumpTo, liftOff } from './TileJump';
+import { FxType, Ply_SoundManager } from '../MyScript/ScriptTemplate/Ply_SoundManager';
 const { ccclass, property } = _decorator;
 
 /**
@@ -83,6 +84,8 @@ export class WaitTray extends Component {
     private place(tile: DrinkTile, index: number, height: number): void {
         const slot = this.slots[index];
         const target = slot.getChildByName('Circle') ?? slot;
-        jumpTo(tile.node, slot, target, null, undefined, 0.3, height);
+        // Chỉ phát tiếng khi cốc nhảy vào khay (height > 0), không phát khi khay dồn trái.
+        const landed = height > 0 ? () => Ply_SoundManager.Ins?.playFxOneShot(FxType.WaitAreaSlot) : undefined;
+        jumpTo(tile.node, slot, target, null, landed, 0.3, height);
     }
 }

@@ -4,6 +4,7 @@ import { PoolMember, PoolType } from '../Pool/PoolMember';
 import { CustomerChat } from './CustomerChat';
 import { CustomerFx } from './CustomerFx';
 import { jumpTo, liftOff } from './TileJump';
+import { FxType, Ply_SoundManager } from '../MyScript/ScriptTemplate/Ply_SoundManager';
 const { ccclass, property } = _decorator;
 
 /** Các nhóm thuộc tính trong Inspector, mỗi nhóm là một header gập / mở được. */
@@ -183,7 +184,7 @@ export class CustomerController extends Component {
      * Hiện khách mới: ảnh mờ của đơn hiện ngay trên đĩa, Avatar trượt vào từ bên trái.
      * `talk` = true: khách nói một câu (CustomerChat) ngay khi trượt vào xong.
      */
-    show(avatarFrame: SpriteFrame | null, drinkFrame: SpriteFrame | null, talk = false): void {
+    show(avatarFrame: SpriteFrame | null, drinkFrame: SpriteFrame | null, talk = false, instant = false): void {
         if (!this.homePosition) this.homePosition = this.slideNode.position.clone();
         const home = this.homePosition;
         this.node.active = true;
@@ -192,8 +193,17 @@ export class CustomerController extends Component {
         this.sendToBack();
         const chat = this.getComponent(CustomerChat);
         chat?.stop();
-        this.slide(home.x - this.slideDistance, home.x, this.slideDuration, 'quadOut', talk ? () => chat?.say() : undefined);
-        this.fx?.speedLines(this.slideNode, this.slideDuration * 0.7);
+        if (instant) {
+            // Khách đứng sẵn ở quầy (tutorial / lượt khách đầu màn): không trượt vào, không tiếng cửa.
+            Tween.stopAllByTarget(this.slideState);
+            const p = this.slideNode.position;
+            this.slideNode.setPosition(home.x, p.y, p.z);
+            if (talk) chat?.say();
+        } else {
+            this.slide(home.x - this.slideDistance, home.x, this.slideDuration, 'quadOut', talk ? () => chat?.say() : undefined);
+            Ply_SoundManager.Ins?.playFxOneShot(FxType.DoorOpen, 0.6);
+            this.fx?.speedLines(this.slideNode, this.slideDuration * 0.7);
+        }
         if (this.avatar && avatarFrame) {
             this.avatar.spriteFrame = avatarFrame;
             this.fitAvatar(avatarFrame);
@@ -220,6 +230,7 @@ export class CustomerController extends Component {
         const offset = cup ? tile.worldPosition.clone().subtract(cup.worldPosition) : null;
         liftOff(tile, () => jumpTo(tile, slot, slot, offset, () => {
             this.snapFx(cup ?? tile);
+            Ply_SoundManager.Ins?.playFxOneShot(FxType.StarToTable);
             const ghost = this.ghosts[index];
             if (ghost) ghost.node.active = false;
             const tick = this.ticks[index];
@@ -265,10 +276,12 @@ export class CustomerController extends Component {
      */
     leave(done: () => void): void {
         this.getComponent(CustomerChat)?.stop();
+        Ply_SoundManager.Ins?.playFxOneShot(FxType.CustomerDone);
         this.showHeart();
         for (const tick of this.ticks) tick.active = false;
         this.popDrinks(() => {
             this.showPraise();
+            Ply_SoundManager.Ins?.playFxOneShot(FxType.CollectCombo);
             this.twinkleAroundAvatar();
             this.scheduleOnce(() => {
                 const home = this.homePosition ?? this.slideNode.position;

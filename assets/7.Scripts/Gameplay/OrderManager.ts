@@ -4,6 +4,7 @@ import { DrinkTile } from '../MapTool/DrinkTile';
 import { LevelMapBuilder } from '../MapTool/LevelMapBuilder';
 import { CustomerController } from './CustomerController';
 import { WaitTray } from './WaitTray';
+import { FxType, Ply_SoundManager } from '../MyScript/ScriptTemplate/Ply_SoundManager';
 const { ccclass, property } = _decorator;
 
 /** Phát trên node này khi thắng / thua. */
@@ -113,7 +114,8 @@ export class OrderManager extends Component {
         const middle = this.middleSlot();
         this.customers.forEach((c, i) => {
             c.node.active = false;
-            this.spawnCustomer(i, i === middle);
+            // Lượt khách đầu màn đứng sẵn ở quầy, không trượt vào.
+            this.spawnCustomer(i, i === middle, true);
         });
         this.resetChatCountdown();
         this.updateLabel();
@@ -129,6 +131,7 @@ export class OrderManager extends Component {
 
         // Cốc rời bàn ngay (model), node vẫn giữ lại để nhảy lên khách hoặc khay.
         this.itemManager.detachTile(tile);
+        Ply_SoundManager.Ins?.playFxOneShot(FxType.TapTile);
         // Giao thẳng nếu có khách cần loại này; nếu không thì cất tạm vào khay chờ.
         if (order) this.deliver(order, tile);
         else this.tray?.add(tile);
@@ -191,7 +194,7 @@ export class OrderManager extends Component {
      * Gọi khách mới vào chỗ `slot` nếu còn đơn, rồi giao luôn cốc phù hợp đang có trong khay.
      * `talk` không truyền: tự quyết định theo `chatEvery` (cứ 2–3 khách thì 1 khách nói khi vào).
      */
-    private spawnCustomer(slot: number, talk?: boolean): void {
+    private spawnCustomer(slot: number, talk?: boolean, instant = false): void {
         const drinkId = this.pickDrink();
         if (drinkId === null) return;
         this.unassigned.set(drinkId, this.unassigned.get(drinkId)! - this.cupsPerOrder);
@@ -204,7 +207,7 @@ export class OrderManager extends Component {
             talk = --this.chatCountdown <= 0;
             if (talk) this.resetChatCountdown();
         }
-        this.customers[slot].show(avatar, this.mapBuilder?.drinkFrames[drinkId] ?? null, talk);
+        this.customers[slot].show(avatar, this.mapBuilder?.drinkFrames[drinkId] ?? null, talk, instant);
 
         // Tự chuyển cốc cùng loại đang chờ trong khay sang đơn mới.
         for (const tile of this.tray?.take(drinkId, this.cupsPerOrder) ?? []) this.deliver(order, tile);
@@ -254,6 +257,7 @@ export class OrderManager extends Component {
         if (canDeliver || pending) return;
         this.finished = true;
         console.log('[OrderManager] LOSE');
+        Ply_SoundManager.Ins?.playFail();
         this.node.emit(LEVEL_LOSE_EVENT);
     }
 

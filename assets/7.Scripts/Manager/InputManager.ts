@@ -1,7 +1,7 @@
 import { _decorator, Component, EventTouch, Input, input, misc, Node, v2, Vec2 } from 'cc';
 import { World } from './World';
 import { ui } from './UI';
-import { sm } from './SoundManager';
+import { Ply_SoundManager } from '../MyScript/ScriptTemplate/Ply_SoundManager';
 const { ccclass, property } = _decorator;
 
 export var ipm: InputManager = null;
@@ -28,7 +28,7 @@ export class InputManager extends Component {
     fisrtTap() {
         if(this.isFirtMove) {
             this.isFirtMove = false;
-            sm.playBgMusic();
+            Ply_SoundManager.Ins?.playBGM();
             ui.firstMove();
         }
     }

@@ -4,6 +4,7 @@ import { LevelMapBuilder } from '../MapTool/LevelMapBuilder';
 import { ui } from '../Manager/UI';
 import { CustomerController } from './CustomerController';
 import { OrderManager } from './OrderManager';
+import { FxType, Ply_SoundManager } from '../MyScript/ScriptTemplate/Ply_SoundManager';
 const { ccclass, property } = _decorator;
 
 /** Các nhóm thuộc tính trong Inspector, mỗi nhóm là một header gập / mở được. */
@@ -15,7 +16,7 @@ const GROUP = {
 
 /**
  * Tutorial đầu game:
- * 1. Bàn trống, một vị khách đi tới quầy (khách đứng giữa).
+ * 1. Bàn trống, một vị khách đứng sẵn ở quầy (khách đứng giữa).
  * 2. Thuyền trưởng trượt vào ở góc dưới, bong bóng thoại hiện chữ dần:
  *    câu 1 → "Tap to continue" → câu 2.
  * 3. Đơn của khách hiện trên đĩa, bàn chỉ có 3 cốc đúng loại; bàn tay chỉ vào từng cốc,
@@ -99,7 +100,7 @@ export class TutorialManager extends Component {
     @property({ tooltip: 'Khoảng cách giữa 3 cốc mẫu (px)', group: GROUP.play })
     tileSpacing = 410;
 
-    @property({ tooltip: 'Cốc mẫu to hơn cốc thật bao nhiêu lần; khi bấm cốc thu dần về cỡ thường trong lúc bay lên đĩa', group: GROUP.play })
+    @property({ tooltip: 'Cốc mẫu to hơn cốc thật bao nhiêu lần; giữ nguyên cỡ này khi bay và đáp lên đĩa', group: GROUP.play })
     tileScale = 1.5;
 
     @property({ type: Node, tooltip: 'Cụm quầy (khách + đĩa + khay chờ) phóng to trong lúc tutorial, ví dụ UI_SlotBar', group: GROUP.play })
@@ -166,7 +167,7 @@ export class TutorialManager extends Component {
         if (t.shown >= total) this.finishTyping();
     }
 
-    /** Bước 1: ẩn bàn thật, gọi một vị khách tới quầy (chưa hiện đơn). */
+    /** Bước 1: ẩn bàn thật, một vị khách đứng sẵn ở quầy (chưa hiện đơn). */
     private begin(): void {
         this.setBoardVisible(false, 0);
         const all = this.node.scene.getComponentsInChildren(CustomerController);
@@ -175,9 +176,10 @@ export class TutorialManager extends Component {
         if (!this.customer) return this.finish();
         this.focusOn(this.customer, all);
         const frame = this.mapBuilder?.drinkFrames[this.drinkId] ?? null;
-        this.customer.show(this.customerAvatar, frame, false);
+        // Khách tutorial đứng sẵn ở quầy, không trượt vào.
+        this.customer.show(this.customerAvatar, frame, false, true);
         for (const g of this.customer.ghosts) g.node.active = false;
-        this.scheduleOnce(() => this.showGuide(), this.customer.slideDuration + 0.3);
+        this.scheduleOnce(() => this.showGuide(), 0.3);
     }
 
     /** Bước 2: thuyền trưởng trượt vào, nói câu 1 → chạm → câu 2 → vào lượt chơi mẫu. */
@@ -231,31 +233,18 @@ export class TutorialManager extends Component {
     private onTileTap(tile: DrinkTile): void {
         if (this.used.has(tile) || !this.customer) return;
         this.used.add(tile);
+        Ply_SoundManager.Ins?.playFxOneShot(FxType.TapTile);
         tile.node.off(Node.EventType.TOUCH_END);
         Tween.stopAllByTarget(tile.node);
-        this.shrinkToNormal(tile.node);
+        // Giữ nguyên cỡ khi bay và đáp lên đĩa (quầy đang phóng to nên cốc vừa với cốc mẫu);
+        // bấm lúc cốc còn đang bật lên thì đặt luôn về đủ cỡ.
+        tile.node.setScale(this.tileScale, this.tileScale, 1);
         this.hideHand();
         const index = this.used.size - 1;
         this.customer.receive(tile.node, index, () => {
             if (++this.landed === this.tiles.length) this.complete();
         });
         if (this.used.size < this.tiles.length) this.scheduleOnce(() => this.showHand(), 0.45);
-    }
-
-    /**
-     * Cốc mẫu thu từ `tileScale` về cỡ thường trong lúc nhích lên / bay. Tween chạy trên một object
-     * riêng vì liftOff / jumpTo dừng mọi tween gắn trên node cốc.
-     */
-    private shrinkToNormal(node: Node): void {
-        const state = { s: node.scale.x };
-        tween(state)
-            .to(0.3, { s: 1 }, {
-                easing: 'quadOut',
-                onUpdate: () => {
-                    if (node.isValid) node.setScale(state.s, state.s, 1);
-                },
-            })
-            .start();
     }
 
     /** Bước 4: đủ đơn → khách vui rồi đi, thuyền trưởng nói câu 3; cả hai xong mới cho chạm để vào game. */
@@ -336,6 +325,8 @@ export class TutorialManager extends Component {
 
     /** Chạm lúc chữ đang hiện → hiện hết ngay; chạm lúc đang chờ → qua bước tiếp. */
     private onBlockerTap(): void {
+        // Lớp chặn giữ lại chạm nên InputManager chưa bật nhạc: bật ở chạm đầu tiên trong tutorial.
+        Ply_SoundManager.Ins?.playBGM();
         if (this.typing) return this.finishTyping();
         const next = this.onTap;
         if (!next) return;

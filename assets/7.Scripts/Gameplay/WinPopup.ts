@@ -2,6 +2,7 @@ import { _decorator, Animation, BlockInputEvents, Color, Component, Graphics, No
 import { gc } from '../Tool/GameController';
 import { ui } from '../Manager/UI';
 import { LEVEL_WIN_EVENT, OrderManager } from './OrderManager';
+import { FxType, Ply_SoundManager } from '../MyScript/ScriptTemplate/Ply_SoundManager';
 const { ccclass, property } = _decorator;
 
 /** Các nhóm thuộc tính trong Inspector, mỗi nhóm là một header gập / mở được. */
@@ -91,6 +92,7 @@ export class WinPopup extends Component {
     show(): void {
         if (this.shown) return;
         this.shown = true;
+        Ply_SoundManager.Ins?.playFx(FxType.LevelWin);
         this.node.active = true;
         this.node.setSiblingIndex(this.node.parent ? this.node.parent.children.length - 1 : 0);
         // Logo + nút tải ở góc màn hình (UI.fisrtOn) trùng với endcard nên ẩn đi.
