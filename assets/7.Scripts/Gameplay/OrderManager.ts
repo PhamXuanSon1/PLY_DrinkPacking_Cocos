@@ -58,6 +58,9 @@ export class OrderManager extends Component {
     @property({ tooltip: 'Cứ ngẫu nhiên [x, y] khách mới vào thì có 1 khách nói (CustomerChat). Khách giữa luôn nói khi bắt đầu màn' })
     chatEvery = new Vec2(2, 3);
 
+    @property({ tooltip: 'Tự bắt đầu màn khi vào scene. TutorialManager tắt cờ này và tự gọi startLevel() khi tutorial xong' })
+    autoStart = true;
+
     /** Đơn theo từng vị trí khách; null nghĩa là vị trí đó đang trống hoặc chưa có đơn mới. */
     private active: (Order | null)[] = [];
     /** Số cốc mỗi loại chưa được dành cho đơn nào; giảm khi tạo đơn mới. */
@@ -73,6 +76,7 @@ export class OrderManager extends Component {
     private chatCountdown = 0;
 
     start(): void {
+        if (!this.autoStart) return;
         // Chờ một frame để DrinkItemManager.start() quét xong các cốc.
         this.scheduleOnce(() => this.startLevel(), 0);
     }

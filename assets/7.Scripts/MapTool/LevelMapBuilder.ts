@@ -173,7 +173,8 @@ export class LevelMapBuilder extends Component {
         );
     }
 
-    private createTile(parent: Node, drinkId: number, name: string): Node {
+    /** Tạo một node cốc (thẻ + Cup) theo kích thước và sprite của builder; dùng cả cho tutorial. */
+    createTile(parent: Node, drinkId: number, name: string): Node {
         const node = this.tilePrefab ? this.createFromPrefab(name, parent) : this.createTileNodes(name, parent);
         node.getComponent(UITransform)!.setContentSize(this.cardSize.x, this.cardSize.y);
 
