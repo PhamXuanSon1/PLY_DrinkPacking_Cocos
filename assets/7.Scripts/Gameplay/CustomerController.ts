@@ -2,9 +2,6 @@ import { _decorator, Color, Component, Node, Sprite, SpriteFrame, Tween, UITrans
 import { jumpTo } from './TileJump';
 const { ccclass, property } = _decorator;
 
-/** Màu ảnh mờ của đồ uống khách đang chờ. */
-const GHOST_COLOR = new Color(255, 255, 255, 110);
-
 /**
  * Điều khiển một khách: avatar, hiển thị đơn (ảnh mờ, nhận cốc, dấu tick).
  * OrderManager chỉ làm việc với script này.
@@ -25,6 +22,12 @@ export class CustomerController extends Component {
 
     @property({ type: [Sprite], tooltip: 'Ảnh mờ đồ uống khách gọi, mỗi điểm đáp một ảnh (giữ chiều cao, rộng theo tỉ lệ ảnh)' })
     ghosts: Sprite[] = [];
+
+    @property({ type: Color, tooltip: 'Màu tint của ảnh Ghost' })
+    ghostColor = new Color(99, 99, 99, 255);
+
+    @property({ slide: true, range: [0, 255, 1], tooltip: 'Độ trong mờ của ảnh Ghost (0–255)' })
+    ghostAlpha = 110;
 
     @property({ type: [Node], tooltip: 'Dấu tick tương ứng từng cốc' })
     ticks: Node[] = [];
@@ -47,6 +50,8 @@ export class CustomerController extends Component {
     private homePosition: Vec3 | null = null;
     /** Target của tween trượt vào / ra (xem `slide`). */
     private readonly slideState = { x: 0 };
+    /** Chiều cao Avatar đặt trong scene, dùng làm chuẩn khi đổi ảnh nhân vật. */
+    private avatarHeight: number | null = null;
 
     onLoad(): void {
         this.homePosition = this.node.position.clone();
@@ -58,11 +63,15 @@ export class CustomerController extends Component {
         const home = this.homePosition;
         this.node.active = true;
         this.slide(home.x - this.slideDistance, home.x);
-        if (this.avatar && avatarFrame) this.avatar.spriteFrame = avatarFrame;
+        if (this.avatar && avatarFrame) {
+            this.avatar.spriteFrame = avatarFrame;
+            this.fitAvatar(avatarFrame);
+        }
+        const ghostTint = new Color(this.ghostColor.r, this.ghostColor.g, this.ghostColor.b, this.ghostAlpha);
         for (const ghost of this.ghosts) {
             ghost.node.active = true;
             ghost.spriteFrame = drinkFrame;
-            ghost.color = GHOST_COLOR;
+            ghost.color = ghostTint;
             const ut = ghost.node.getComponent(UITransform);
             const rect = drinkFrame?.rect;
             if (ut && rect && rect.height) ut.width = ut.height * rect.width / rect.height;
@@ -103,6 +112,19 @@ export class CustomerController extends Component {
                 done();
             });
         }, this.doneHoldDuration);
+    }
+
+    /**
+     * Ảnh nhân vật có tỉ lệ khác nhau (512x512, 367x512...) nhưng Avatar để size CUSTOM cố định
+     * nên bị kéo méo/lệch. Giữ chiều cao gốc của Avatar, rộng theo tỉ lệ ảnh; anchor 0.5 nên
+     * nhân vật luôn nằm giữa và chân vẫn đặt cùng một đường.
+     */
+    private fitAvatar(frame: SpriteFrame): void {
+        const ut = this.avatar?.node.getComponent(UITransform);
+        const rect = frame.rect;
+        if (!ut || !rect.height) return;
+        if (this.avatarHeight === null) this.avatarHeight = ut.height;
+        ut.setContentSize(this.avatarHeight * rect.width / rect.height, this.avatarHeight);
     }
 
     /**
