@@ -1,4 +1,6 @@
-import { _decorator, Color, Component, Node, Sprite, SpriteFrame, Tween, UITransform, Vec3, tween } from 'cc';
+import { _decorator, Animation, Color, Component, Node, Sprite, SpriteFrame, Tween, UITransform, Vec3, tween } from 'cc';
+import { World } from '../Manager/World';
+import { PoolMember, PoolType } from '../Pool/PoolMember';
 import { jumpTo } from './TileJump';
 const { ccclass, property } = _decorator;
 
@@ -9,6 +11,7 @@ const { ccclass, property } = _decorator;
  * Cấu trúc node:
  * Customer (CustomerController)
  * ├── Avatar
+ * │   └── heart_emoji (điểm sinh tim khi đủ đơn)
  * ├── Cup_0..2        (điểm đáp, mỗi node có con Ghost = ảnh mờ)
  * └── Tick_0..2
  */
@@ -44,6 +47,12 @@ export class CustomerController extends Component {
     @property({ tooltip: 'Thời gian khách trượt vào / ra (giây)' })
     slideDuration = 0.5;
 
+    @property({ type: Node, tooltip: 'Node đặt tim (để trống = tìm node con "heart_emoji" của Avatar)' })
+    heartAnchor: Node | null = null;
+
+    @property({ tooltip: 'Thời gian tim hiện trước khi bị tắt (giây)' })
+    heartDuration = 1;
+
     /** Các node cốc thật đã giao cho khách hiện tại. */
     private delivered: Node[] = [];
     /** Vị trí đứng đặt trong scene; khách trượt vào tới đây và trượt ra từ đây. */
@@ -52,9 +61,12 @@ export class CustomerController extends Component {
     private readonly slideState = { x: 0 };
     /** Chiều cao Avatar đặt trong scene, dùng làm chuẩn khi đổi ảnh nhân vật. */
     private avatarHeight: number | null = null;
+    /** Tim đang hiện của khách hiện tại (lấy từ pool PoolType.HeartEmoji). */
+    private heart: PoolMember | null = null;
 
     onLoad(): void {
         this.homePosition = this.node.position.clone();
+        if (!this.heartAnchor) this.heartAnchor = this.avatar?.node.getChildByName('heart_emoji') ?? null;
     }
 
     /** Hiện khách mới với ảnh mờ của loại đồ uống gọi; khách trượt vào từ bên trái. */
@@ -62,6 +74,8 @@ export class CustomerController extends Component {
         if (!this.homePosition) this.homePosition = this.node.position.clone();
         const home = this.homePosition;
         this.node.active = true;
+        this.unschedule(this.hideHeart);
+        this.hideHeart();
         this.slide(home.x - this.slideDistance, home.x);
         if (this.avatar && avatarFrame) {
             this.avatar.spriteFrame = avatarFrame;
@@ -100,8 +114,9 @@ export class CustomerController extends Component {
         }, 0.35, this.jumpHeight);
     }
 
-    /** Đủ đơn: đứng thêm một lúc, trượt ra bên trái cùng các cốc rồi ẩn; gọi `done` khi đã ẩn. */
+    /** Đủ đơn: hiện tim, đứng thêm một lúc, trượt ra bên trái cùng các cốc rồi ẩn; gọi `done` khi đã ẩn. */
     leave(done: () => void): void {
+        this.showHeart();
         this.scheduleOnce(() => {
             const home = this.homePosition ?? this.node.position;
             // Cốc đã là con của Cup_i nên trượt theo khách; hủy sau khi ra khỏi màn hình.
@@ -112,6 +127,30 @@ export class CustomerController extends Component {
                 done();
             });
         }, this.doneHoldDuration);
+    }
+
+    /**
+     * Lấy tim từ pool (PoolControl), gắn vào `heartAnchor` để đi theo khách khi trượt ra,
+     * tự trả về pool sau `heartDuration` giây.
+     */
+    private showHeart(): void {
+        const pool = World.ins.poolManager;
+        if (!pool || !this.heartAnchor) return;
+        this.unschedule(this.hideHeart);
+        this.hideHeart();
+        const heart = pool.spawn(PoolType.HeartEmoji);
+        heart.node.setParent(this.heartAnchor);
+        heart.node.setPosition(Vec3.ZERO);
+        // Node lấy lại từ pool không tự chạy lại playOnLoad nên phát anim thủ công.
+        heart.getComponent(Animation)?.play();
+        this.heart = heart;
+        this.scheduleOnce(this.hideHeart, this.heartDuration);
+    }
+
+    private hideHeart(): void {
+        const heart = this.heart;
+        this.heart = null;
+        if (heart?.isValid) World.ins.poolManager.despawn(heart);
     }
 
     /**

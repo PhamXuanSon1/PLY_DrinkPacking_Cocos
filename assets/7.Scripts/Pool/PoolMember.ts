@@ -16,7 +16,8 @@ export enum PoolType {
     Thing,
     Box,
     VFX,
-    StarVFX
+    StarVFX,
+    HeartEmoji,
     
 }
 

@@ -1,4 +1,4 @@
-import { _decorator, Component, Label, Node, SpriteFrame } from 'cc';
+import { _decorator, Animation, assetManager, Component, find, instantiate, Label, Node, Prefab, SpriteFrame } from 'cc';
 import { DrinkItemManager } from '../MapTool/DrinkItemManager';
 import { DrinkTile } from '../MapTool/DrinkTile';
 import { LevelMapBuilder } from '../MapTool/LevelMapBuilder';
@@ -52,6 +52,9 @@ export class OrderManager extends Component {
     @property({ tooltip: 'Số cốc mỗi đơn' })
     cupsPerOrder = 3;
 
+    @property({ tooltip: 'Thời gian hiển thị heart_emoji khi thắng (giây)' })
+    heartEmojiDuration = 2;
+
     /** Đơn theo từng vị trí khách; null nghĩa là vị trí đó đang trống hoặc chưa có đơn mới. */
     private active: (Order | null)[] = [];
     /** Số cốc mỗi loại chưa được dành cho đơn nào; giảm khi tạo đơn mới. */
@@ -62,6 +65,7 @@ export class OrderManager extends Component {
     private spawned = 0;
     /** Chặn input và phát lại kết quả sau khi màn đã kết thúc. */
     private finished = false;
+    private heartEmojiNode: Node | null = null;
 
     start(): void {
         // Chờ một frame để DrinkItemManager.start() quét xong các cốc.
@@ -70,6 +74,14 @@ export class OrderManager extends Component {
 
     /** Bắt đầu (hoặc chơi lại) phần khách: đếm cốc, gắn input, gọi khách đầu tiên. */
     startLevel(): void {
+        // Cocos có thể deserialize mảng customers thành null khi scene chưa gán Inspector.
+        if (!Array.isArray(this.customers)) {
+            const orderRoot = find('UI/Canvas3D/Scenes/ScaleGameplay/UI_SlotBar/UI_Orders', this.node.scene ?? undefined);
+            this.customers = orderRoot?.children
+                .map((tray) => tray.getChildByName('Customer')?.getComponent(CustomerController))
+                .filter((customer): customer is CustomerController => customer !== null && customer !== undefined) ?? [];
+        }
+
         // Đếm cốc chưa được gán cho đơn nào và gắn input cho chúng; gọi khách đầu tiên.
         const tiles = this.itemManager?.getTiles() ?? [];
         this.unassigned.clear();
@@ -89,6 +101,7 @@ export class OrderManager extends Component {
         this.served = 0;
         this.spawned = 0;
         this.finished = false;
+        if (this.heartEmojiNode?.isValid) this.heartEmojiNode.active = false;
         this.tray?.reset();
         // Mỗi vị trí bắt đầu chưa có đơn; gọi khách cho từng vị trí bên dưới.
         this.active = this.customers.map(() => null);
@@ -198,7 +211,43 @@ export class OrderManager extends Component {
         if (this.finished || this.served < this.totalOrders) return;
         this.finished = true;
         console.log('[OrderManager] WIN');
+        this.showHeartEmoji();
         this.node.emit(LEVEL_WIN_EVENT);
+    }
+
+    /** Tạo heart_emoji dưới Tray_0 và tự ẩn sau khoảng thời gian cấu hình. */
+    private showHeartEmoji(): void {
+        const tray = find('UI/Canvas3D/Scenes/ScaleGameplay/UI_SlotBar/UI_Orders/Tray_0', this.node.scene ?? undefined);
+        if (!tray) {
+            console.warn('[OrderManager] Không tìm thấy Tray_0 để hiển thị heart_emoji.');
+            return;
+        }
+
+        const show = (heart: Node): void => {
+            this.heartEmojiNode = heart;
+            heart.setPosition(0, 300, 0);
+            heart.active = true;
+            heart.getComponent(Animation)?.play();
+            this.scheduleOnce(() => {
+                if (heart.isValid) heart.active = false;
+            }, this.heartEmojiDuration);
+        };
+
+        if (this.heartEmojiNode?.isValid) {
+            show(this.heartEmojiNode);
+            return;
+        }
+
+        assetManager.loadAny('028719ee-c859-4300-9dd9-70e2c1a82c1c', (error, prefab: Prefab) => {
+            if (error || !prefab || !this.node.isValid || !tray.isValid) {
+                console.warn('[OrderManager] Không tải được prefab heart_emoji.', error);
+                return;
+            }
+            const heart = instantiate(prefab);
+            heart.name = 'heart_emoji';
+            tray.addChild(heart);
+            show(heart);
+        });
     }
 
     /** Thua khi khay đầy và không cốc lộ nào giao được cho khách đang chờ. */
