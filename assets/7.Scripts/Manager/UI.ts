@@ -3,6 +3,7 @@ import { PointerController } from './PointerController';
 import { Ply_SoundManager, FxType } from '../MyScript/ScriptTemplate/Ply_SoundManager';
 import { Clock } from './Clock';
 import { ipm } from './InputManager';
+import { gc } from '../Tool/GameController';
 const { ccclass, property } = _decorator;
 
 export enum BindUIType {
@@ -52,17 +53,35 @@ export class UI extends Component {
     }
 
     openStore(...args: any) {
+
+        gc?.redirectToStore();
+
         console.log('openStore');  
         Ply_SoundManager.Ins?.stopAll();      
     }
 
     first: boolean = true;
+    /** TutorialManager bật cờ này: lần chạm đầu không hiện fisrtOn, chờ tutorial xong gọi showFirstOn(). */
+    deferFirstOn: boolean = false;
     firstMove() {
         if(this.first) {
             this.first = false;
-            this.fisrtOn.forEach(node => { if (node?.isValid) node.active = true; });
+            if (!this.deferFirstOn) this.showFirstOn();
             this.firstOff.forEach(node => { if (node?.isValid) node.active = false; });
         }
+    }
+
+    /** Hiện các node fisrtOn (logo, nút tải...). */
+    showFirstOn() {
+        this.deferFirstOn = false;
+        this.fisrtOn.forEach(node => { if (node?.isValid) node.active = true; });
+    }
+
+    /** Ẩn các node fisrtOn (ví dụ khi endcard hiện); không để lần chạm đầu sau đó bật lại. */
+    hideFirstOn() {
+        this.first = false;
+        this.deferFirstOn = false;
+        this.fisrtOn.forEach(node => { if (node?.isValid) node.active = false; });
     }
 
     onLose() {
