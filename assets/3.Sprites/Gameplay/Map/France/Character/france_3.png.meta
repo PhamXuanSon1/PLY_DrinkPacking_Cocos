@@ -15,8 +15,8 @@
       "id": "6c48a",
       "name": "texture",
       "userData": {
-        "wrapModeS": "repeat",
-        "wrapModeT": "repeat",
+        "wrapModeS": "clamp-to-edge",
+        "wrapModeT": "clamp-to-edge",
         "minfilter": "linear",
         "magfilter": "linear",
         "mipfilter": "none",
@@ -41,11 +41,11 @@
       "userData": {
         "trimThreshold": 1,
         "rotated": false,
-        "offsetX": 4,
+        "offsetX": 0,
         "offsetY": -13,
         "trimX": 12,
         "trimY": 26,
-        "width": 367,
+        "width": 359,
         "height": 486,
         "rawWidth": 383,
         "rawHeight": 512,
@@ -60,16 +60,16 @@
         "meshType": 0,
         "vertices": {
           "rawPosition": [
-            -183.5,
+            -179.5,
             -243,
             0,
-            183.5,
+            179.5,
             -243,
             0,
-            -183.5,
+            -179.5,
             243,
             0,
-            183.5,
+            179.5,
             243,
             0
           ],
@@ -84,30 +84,30 @@
           "uv": [
             12,
             486,
-            379,
+            371,
             486,
             12,
             0,
-            379,
+            371,
             0
           ],
           "nuv": [
             0.031331592689295036,
             0,
-            0.9895561357702349,
+            0.9686684073107049,
             0,
             0.031331592689295036,
             0.94921875,
-            0.9895561357702349,
+            0.9686684073107049,
             0.94921875
           ],
           "minPos": [
-            -183.5,
+            -179.5,
             -243,
             0
           ],
           "maxPos": [
-            183.5,
+            179.5,
             243,
             0
           ]
