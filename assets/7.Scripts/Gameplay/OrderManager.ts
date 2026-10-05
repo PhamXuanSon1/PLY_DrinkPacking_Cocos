@@ -30,6 +30,7 @@ interface Order {
  */
 @ccclass('OrderManager')
 export class OrderManager extends Component {
+    // Các thành phần gameplay được nối trong Inspector.
     @property({ type: DrinkItemManager, tooltip: 'Quản lý các cốc trên bàn' })
     itemManager: DrinkItemManager | null = null;
 
@@ -51,13 +52,15 @@ export class OrderManager extends Component {
     @property({ tooltip: 'Số cốc mỗi đơn' })
     cupsPerOrder = 3;
 
-    /** Đơn đang hiển thị theo chỗ đứng; null = chỗ trống. */
+    /** Đơn theo từng vị trí khách; null nghĩa là vị trí đó đang trống hoặc chưa có đơn mới. */
     private active: (Order | null)[] = [];
-    /** Số cốc theo drinkId chưa được gán cho đơn nào. */
+    /** Số cốc mỗi loại chưa được dành cho đơn nào; giảm khi tạo đơn mới. */
     private unassigned = new Map<number, number>();
+    /** Tổng số đơn của màn, số đơn đã phục vụ và số khách đã được tạo. */
     private totalOrders = 0;
     private served = 0;
     private spawned = 0;
+    /** Chặn input và phát lại kết quả sau khi màn đã kết thúc. */
     private finished = false;
 
     start(): void {
@@ -67,11 +70,15 @@ export class OrderManager extends Component {
 
     /** Bắt đầu (hoặc chơi lại) phần khách: đếm cốc, gắn input, gọi khách đầu tiên. */
     startLevel(): void {
+        // Đếm cốc chưa được gán cho đơn nào và gắn input cho chúng; gọi khách đầu tiên.
         const tiles = this.itemManager?.getTiles() ?? [];
         this.unassigned.clear();
+
         for (const t of tiles) {
             if (t.collected) continue;
+            // Đếm số cốc chưa lấy của từng loại để chia thành các đơn.
             this.unassigned.set(t.drinkId, (this.unassigned.get(t.drinkId) ?? 0) + 1);
+            // Gỡ listener cũ trước để gọi startLevel nhiều lần không tạo input trùng.
             t.node.off(Node.EventType.TOUCH_END, this.onTileTouched, this);
             t.node.on(Node.EventType.TOUCH_END, this.onTileTouched, this);
         }
@@ -83,6 +90,7 @@ export class OrderManager extends Component {
         this.spawned = 0;
         this.finished = false;
         this.tray?.reset();
+        // Mỗi vị trí bắt đầu chưa có đơn; gọi khách cho từng vị trí bên dưới.
         this.active = this.customers.map(() => null);
         this.customers.forEach((c, i) => {
             c.node.active = false;
@@ -93,6 +101,7 @@ export class OrderManager extends Component {
 
     private onTileTouched(event: { currentTarget: Node }): void {
         const tile = event.currentTarget.getComponent(DrinkTile);
+        // Bỏ qua cốc không hợp lệ, màn đã xong, hoặc cốc đang bị che / không chọn được.
         if (!tile || this.finished || !this.itemManager?.isSelectable(tile)) return;
 
         const order = this.findOrder(tile.drinkId);
@@ -100,6 +109,7 @@ export class OrderManager extends Component {
 
         // Cốc rời bàn ngay (model), node vẫn giữ lại để nhảy lên khách hoặc khay.
         this.itemManager.detachTile(tile);
+        // Giao thẳng nếu có khách cần loại này; nếu không thì cất tạm vào khay chờ.
         if (order) this.deliver(order, tile);
         else this.tray?.add(tile);
         this.checkLose();
@@ -117,18 +127,22 @@ export class OrderManager extends Component {
     /** Giao cốc cho đơn: giữ chỗ ngay, cốc nhảy lên đĩa; đủ cốc đáp xong thì khách rời đi. */
     private deliver(order: Order, tile: DrinkTile): void {
         const slot = this.active.indexOf(order);
+        // Đặt chỗ ngay khi bắt đầu bay để cốc tiếp theo không bị giao quá số lượng đơn.
         const index = order.reserved++;
         this.customers[slot].receive(tile.node, index, () => {
+            // Chỉ tính là đã tới nơi sau khi animation đáp xuống hoàn tất.
             order.landed++;
             if (order.landed === this.cupsPerOrder) this.complete(order, slot);
         });
     }
 
     private complete(order: Order, slot: number): void {
+        // Đánh dấu done trước khi khách rời đi để không nhận thêm cốc cho đơn này.
         order.done = true;
         this.served++;
         this.updateLabel();
         this.customers[slot].leave(() => {
+            // Dùng lại vị trí khách vừa rời; kiểm tra kết quả sau khi thử gọi khách tiếp theo.
             this.active[slot] = null;
             this.spawnCustomer(slot);
             this.checkWin();
@@ -143,10 +157,12 @@ export class OrderManager extends Component {
         this.unassigned.set(drinkId, this.unassigned.get(drinkId)! - this.cupsPerOrder);
         const order: Order = { drinkId, reserved: 0, landed: 0, done: false };
         this.active[slot] = order;
+        // Xoay vòng avatar theo thứ tự khách được tạo.
         const avatar = this.avatarFrames.length ? this.avatarFrames[this.spawned % this.avatarFrames.length] : null;
         this.spawned++;
         this.customers[slot].show(avatar, this.mapBuilder?.drinkFrames[drinkId] ?? null);
 
+        // Tự chuyển cốc cùng loại đang chờ trong khay sang đơn mới.
         for (const tile of this.tray?.take(drinkId, this.cupsPerOrder) ?? []) this.deliver(order, tile);
     }
 
@@ -161,10 +177,13 @@ export class OrderManager extends Component {
         let bestId: number | null = null;
         let bestScore = -Infinity;
         for (const [id, left] of this.unassigned) {
+            // Không tạo đơn nếu số cốc còn lại không đủ cho một đơn hoàn chỉnh.
             if (left < this.cupsPerOrder) continue;
             const inTray = this.tray?.count(id) ?? 0;
             const visible = selectable.filter(t => t.drinkId === id).length;
             const sameActive = this.active.filter(o => o && !o.done && o.drinkId === id).length;
+            // Ưu tiên loại có thể gom đủ nhanh, rồi loại đang chiếm khay; giảm điểm nếu
+            // đã có khách khác chờ cùng loại. `left` giúp phân định khi các điểm gần bằng nhau.
             const score = Math.min(this.cupsPerOrder, inTray + visible) * 100 + inTray * 10 - sameActive * 50 + left;
             if (score > bestScore) {
                 bestScore = score;
@@ -175,6 +194,7 @@ export class OrderManager extends Component {
     }
 
     private checkWin(): void {
+        // Chỉ thắng khi mọi đơn đều đã được phục vụ và chưa có kết quả kết thúc trước đó.
         if (this.finished || this.served < this.totalOrders) return;
         this.finished = true;
         console.log('[OrderManager] WIN');
@@ -186,6 +206,7 @@ export class OrderManager extends Component {
         if (this.finished || !this.tray?.isFull()) return;
         const canDeliver = (this.itemManager?.getSelectableTiles() ?? []).some(t => this.findOrder(t.drinkId));
         const pending = this.active.some(o => o && (o.done || o.landed < o.reserved)); // Cốc đang bay / khách đang rời đi.
+        // Chưa thua nếu còn nước đi hợp lệ hoặc animation/khách rời đi chưa xử lý xong.
         if (canDeliver || pending) return;
         this.finished = true;
         console.log('[OrderManager] LOSE');
@@ -193,6 +214,7 @@ export class OrderManager extends Component {
     }
 
     private updateLabel(): void {
+        // Hiển thị số đơn đã hoàn tất trên tổng số đơn của màn.
         if (this.progressLabel) this.progressLabel.string = `${this.served}/${this.totalOrders}`;
     }
 }
