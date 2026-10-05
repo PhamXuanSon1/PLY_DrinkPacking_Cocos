@@ -1,6 +1,7 @@
-import { _decorator, Animation, BlockInputEvents, Color, Component, Graphics, Label, Node, SpriteFrame, Tween, tween, UIOpacity, UITransform, Vec3 } from 'cc';
+import { _decorator, Animation, BlockInputEvents, Color, Component, Graphics, Label, Node, RichText, SpriteFrame, Tween, tween, UIOpacity, UITransform, Vec3 } from 'cc';
 import { DrinkTile } from '../MapTool/DrinkTile';
 import { LevelMapBuilder } from '../MapTool/LevelMapBuilder';
+import { ui } from '../Manager/UI';
 import { CustomerController } from './CustomerController';
 import { OrderManager } from './OrderManager';
 const { ccclass, property } = _decorator;
@@ -28,9 +29,9 @@ const GROUP = {
  * ├── Blocker         (chặn chạm toàn màn hình lúc thoại; chạm = qua câu / hiện hết chữ)
  * └── Guide           (thuyền trưởng, góc dưới)
  *     ├── Captain
- *     ├── Bubble      (Graphics: khung thoại vẽ bằng code)
- *     │   └── Text
- *     └── TapHint     ("Tap to continue", nhấp nháy)
+ *     ├── Bubble      (Sprite bubble_chat; nếu dùng Graphics thì vẽ khung bằng code)
+ *     │   └── Text    (RichText hoặc Label)
+ *     └── TapHint     ("Tap to continue", hiện tĩnh, nằm ngoài khung thoại)
  */
 @ccclass('TutorialManager')
 export class TutorialManager extends Component {
@@ -61,15 +62,21 @@ export class TutorialManager extends Component {
     @property({ type: Node, tooltip: 'Khung thoại; nếu có Graphics thì tự vẽ khung bo góc', group: GROUP.guide })
     bubble: Node | null = null;
 
-    @property({ type: Label, tooltip: 'Chữ trong khung thoại', group: GROUP.guide })
+    @property({ type: Label, tooltip: 'Chữ trong khung thoại (Label thường; dùng RichText thì để trống ô này)', group: GROUP.guide })
     textLabel: Label | null = null;
+
+    @property({ type: RichText, tooltip: 'Chữ trong khung thoại dạng RichText: câu thoại được dùng thẻ <color=#..>..</color>', group: GROUP.guide })
+    richText: RichText | null = null;
+
+    @property({ type: Color, tooltip: 'Màu chữ nổi bật trong câu thoại: phần chữ đặt trong <hl>...</hl> (ví dụ tên game). Màu chữ thường chỉnh ở Font Color của RichText', group: GROUP.guide })
+    highlightColor = new Color(92, 196, 240, 255);
 
     @property({ type: Node, tooltip: '"Tap to continue"', group: GROUP.guide })
     tapHint: Node | null = null;
 
     @property({ type: [String], tooltip: 'Câu 1, câu 2 (trước lượt chơi), câu 3 (sau khi đủ đơn)', group: GROUP.guide })
     lines: string[] = [
-        'Welcome to Cozy Drink Match! Let’s serve our first customer.',
+        'Welcome to\n<hl>Cozy Drink Match</hl>!\nLet’s serve our first customer.',
         'Check their order and pick the right drinks',
         'Great job! Ready for the next order?',
     ];
@@ -101,11 +108,20 @@ export class TutorialManager extends Component {
     @property({ tooltip: 'Cụm quầy to hơn bao nhiêu lần trong lúc tutorial (chỉ hiện 1 đĩa ở giữa)', group: GROUP.play })
     focusScale = 1.3;
 
+    @property({ type: [Node], tooltip: 'Các ô khay chờ hiện trong lúc tutorial (ví dụ Slot_0..2); các ô cùng cha còn lại bị ẩn. Để trống = giữ nguyên khay', group: GROUP.play })
+    tutorialSlots: Node[] = [];
+
+    @property({ tooltip: 'Khoảng cách giữa các ô khay chờ trong lúc tutorial (px), căn giữa', group: GROUP.play })
+    tutorialSlotSpacing = 170;
+
     private customer: CustomerController | null = null;
     /** Trạng thái gốc để trả lại khi tutorial xong: scale cụm quầy, vị trí đĩa tutorial, các đĩa bị ẩn. */
     private focusBaseScale: Vec3 | null = null;
     private trayBasePos: Vec3 | null = null;
     private hiddenTrays: Node[] = [];
+    /** Vị trí gốc của các ô khay chờ dùng trong tutorial, và các ô bị ẩn, để trả lại khi xong. */
+    private slotBasePos = new Map<Node, Vec3>();
+    private hiddenSlots: Node[] = [];
     private tiles: DrinkTile[] = [];
     private used = new Set<DrinkTile>();
     private landed = 0;
@@ -134,16 +150,20 @@ export class TutorialManager extends Component {
     }
 
     start(): void {
+        if (!this.playTutorial) return;
+        // Logo / nút tải (UI.fisrtOn) chỉ hiện khi tutorial xong, không hiện ở lần chạm đầu.
+        if (ui) ui.deferFirstOn = true;
         // Chờ một frame để DrinkItemManager quét xong bàn và CustomerController lưu vị trí đứng.
-        if (this.playTutorial) this.scheduleOnce(() => this.begin(), 0);
+        this.scheduleOnce(() => this.begin(), 0);
     }
 
     update(dt: number): void {
         const t = this.typing;
-        if (!t || !this.textLabel) return;
-        t.shown = Math.min(t.text.length, t.shown + dt * this.charsPerSecond);
-        this.textLabel.string = t.text.substring(0, Math.floor(t.shown));
-        if (t.shown >= t.text.length) this.finishTyping();
+        if (!t) return;
+        const total = visibleLength(t.text);
+        t.shown = Math.min(total, t.shown + dt * this.charsPerSecond);
+        this.setText(revealRich(t.text, Math.floor(t.shown)));
+        if (t.shown >= total) this.finishTyping();
     }
 
     /** Bước 1: ẩn bàn thật, gọi một vị khách tới quầy (chưa hiện đơn). */
@@ -274,11 +294,12 @@ export class TutorialManager extends Component {
         this.unfocus();
         this.setBoardVisible(true, 0.3);
         this.orderManager?.startLevel();
+        ui?.showFirstOn();
     }
 
     /** Hiện câu `index` trong khung thoại, chữ hiện dần; `done` khi đã hiện hết. */
     private say(index: number, done: () => void): void {
-        const text = this.lines[index] ?? '';
+        const text = this.applyHighlight(this.lines[index] ?? '');
         if (this.blocker) this.blocker.active = true;
         const bubble = this.bubble;
         if (bubble && !bubble.active) {
@@ -286,7 +307,7 @@ export class TutorialManager extends Component {
             bubble.setScale(0, 0, 1);
             tween(bubble).to(0.2, { scale: Vec3.ONE }, { easing: 'backOut' }).start();
         }
-        if (this.textLabel) this.textLabel.string = '';
+        this.setText('');
         this.typing = { text, shown: 0, done };
     }
 
@@ -294,27 +315,23 @@ export class TutorialManager extends Component {
         const t = this.typing;
         if (!t) return;
         this.typing = null;
-        if (this.textLabel) this.textLabel.string = t.text;
+        this.setText(t.text);
         t.done();
     }
 
-    /** Hiện "Tap to continue" nhấp nháy; chạm thì chạy `next`. */
+    /** Hiện "Tap to continue"; chạm thì chạy `next`. */
     private waitTap(next: () => void): void {
         if (this.blocker) this.blocker.active = true;
         this.onTap = next;
         const hint = this.tapHint;
         if (!hint) return;
+        // Hiện tĩnh, không nhấp nháy.
         hint.active = true;
-        const op = hint.getComponent(UIOpacity) ?? hint.addComponent(UIOpacity);
-        Tween.stopAllByTarget(op);
-        op.opacity = 0;
-        tween(op)
-            .to(0.3, { opacity: 255 })
-            .call(() => {
-                const blink = tween(op).to(0.6, { opacity: 90 }).to(0.6, { opacity: 255 });
-                tween(op).repeatForever(blink).start();
-            })
-            .start();
+        const op = hint.getComponent(UIOpacity);
+        if (op) {
+            Tween.stopAllByTarget(op);
+            op.opacity = 255;
+        }
     }
 
     /** Chạm lúc chữ đang hiện → hiện hết ngay; chạm lúc đang chờ → qua bước tiếp. */
@@ -353,6 +370,7 @@ export class TutorialManager extends Component {
         }
         this.hiddenTrays = all.map(c => c.node.parent).filter((t): t is Node => !!t && t !== tray && t.active);
         for (const t of this.hiddenTrays) t.active = false;
+        this.focusSlots();
         const root = this.focusRoot;
         if (root) {
             this.focusBaseScale = root.scale.clone();
@@ -367,11 +385,34 @@ export class TutorialManager extends Component {
         if (tray && this.trayBasePos) tray.setPosition(this.trayBasePos);
         for (const t of this.hiddenTrays) t.active = true;
         this.hiddenTrays = [];
+        this.unfocusSlots();
         const root = this.focusRoot;
         if (root && this.focusBaseScale) {
             Tween.stopAllByTarget(root);
             tween(root).to(0.3, { scale: this.focusBaseScale }, { easing: 'sineOut' }).start();
         }
+    }
+
+    /** Khay chờ trong tutorial: chỉ hiện `tutorialSlots`, căn giữa và giãn theo `tutorialSlotSpacing`. */
+    private focusSlots(): void {
+        const slots = this.tutorialSlots.filter(n => n?.isValid);
+        const parent = slots[0]?.parent;
+        if (!parent) return;
+        this.hiddenSlots = parent.children.filter(c => c.active && !slots.includes(c));
+        for (const c of this.hiddenSlots) c.active = false;
+        slots.forEach((slot, i) => {
+            this.slotBasePos.set(slot, slot.position.clone());
+            const p = slot.position;
+            slot.setPosition((i - (slots.length - 1) / 2) * this.tutorialSlotSpacing, p.y, p.z);
+        });
+    }
+
+    /** Trả khay chờ về đủ ô và vị trí cũ cho màn chơi thật. */
+    private unfocusSlots(): void {
+        for (const [slot, pos] of this.slotBasePos) if (slot.isValid) slot.setPosition(pos);
+        this.slotBasePos.clear();
+        for (const c of this.hiddenSlots) if (c.isValid) c.active = true;
+        this.hiddenSlots = [];
     }
 
     private setBoardVisible(visible: boolean, duration: number): void {
@@ -397,6 +438,18 @@ export class TutorialManager extends Component {
     }
 
     /** Vẽ khung thoại bo góc màu kem, bóng nâu nhạt phía dưới, đuôi chỉ sang trái (về thuyền trưởng). */
+    /** Đổi thẻ <hl>...</hl> trong câu thoại thành thẻ màu RichText theo `highlightColor`. */
+    private applyHighlight(text: string): string {
+        const hex = this.highlightColor.toHEX('#rrggbb');
+        return text.replace(/<hl>/g, `<color=#${hex}>`).replace(/<\/hl>/g, '</color>');
+    }
+
+    /** Ghi chữ vào RichText nếu có, không thì vào Label (Label không hiểu thẻ nên bỏ thẻ đi). */
+    private setText(text: string): void {
+        if (this.richText) this.richText.string = text;
+        else if (this.textLabel) this.textLabel.string = text.replace(/<[^>]+>/g, '');
+    }
+
     private drawBubble(): void {
         const g = this.bubble?.getComponent(Graphics);
         const ut = this.bubble?.getComponent(UITransform);
@@ -424,4 +477,34 @@ export class TutorialManager extends Component {
     onDestroy(): void {
         this.blocker?.off(Node.EventType.TOUCH_END, this.onBlockerTap, this);
     }
+}
+
+/** Số ký tự hiển thị của câu thoại (không tính thẻ RichText như <color=...>). */
+function visibleLength(text: string): number {
+    return text.replace(/<[^>]+>/g, '').length;
+}
+
+/**
+ * Phần đầu của câu thoại gồm `count` ký tự hiển thị, giữ nguyên các thẻ RichText đã mở
+ * và tự đóng các thẻ còn dở, để hiệu ứng hiện chữ dần không làm vỡ thẻ màu.
+ */
+function revealRich(text: string, count: number): string {
+    let out = '';
+    let left = count;
+    const open: string[] = [];
+    for (const part of text.split(/(<[^>]+>)/)) {
+        if (!part) continue;
+        if (part.startsWith('<')) {
+            if (left <= 0) break;
+            out += part;
+            if (part.startsWith('</')) open.pop();
+            else if (!part.endsWith('/>')) open.push(part.slice(1).split(/[=\s>]/)[0]);
+            continue;
+        }
+        if (left <= 0) break;
+        out += part.substring(0, left);
+        left -= part.length;
+    }
+    for (let i = open.length - 1; i >= 0; i--) out += `</${open[i]}>`;
+    return out;
 }
