@@ -32,6 +32,9 @@ export class CustomerController extends Component {
     @property({ tooltip: 'Thời gian khách còn đứng sau khi đủ đơn rồi mới biến mất (giây)' })
     doneHoldDuration = 0.3;
 
+    @property({ tooltip: 'Độ cao cung nhảy của cốc khi giao cho khách' })
+    jumpHeight = 150;
+
     /** Các node cốc thật đã giao cho khách hiện tại. */
     private delivered: Node[] = [];
 
@@ -68,7 +71,7 @@ export class CustomerController extends Component {
                 tick.setSiblingIndex(this.node.children.length - 1);
             }
             landed();
-        });
+        }, 0.35, this.jumpHeight);
     }
 
     /** Đủ đơn: đứng thêm một lúc rồi ẩn cùng các cốc; gọi `done` khi đã ẩn. */
