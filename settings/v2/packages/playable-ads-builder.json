@@ -1,0 +1,12 @@
+{
+  "__version__": "1.0.0",
+  "channel_AppLovin": false,
+  "googleUrl": "https://play.google.com/store/apps/details?id=com.joyboy.drink.packing",
+  "channel_Facebook": false,
+  "channel_IronSource": false,
+  "channel_Mintegral": false,
+  "channel_Moloco": false,
+  "channel_TikTok": false,
+  "channel_Unity": false,
+  "channel_Google": true
+}

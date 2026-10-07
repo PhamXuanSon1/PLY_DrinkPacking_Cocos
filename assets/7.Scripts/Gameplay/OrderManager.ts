@@ -7,7 +7,8 @@ import { WaitTray } from './WaitTray';
 import { FxType, Ply_SoundManager } from '../MyScript/ScriptTemplate/Ply_SoundManager';
 const { ccclass, property } = _decorator;
 
-/** Phát trên node này khi thắng / thua. */
+/** Phát trên node này khi bắt đầu màn chơi (sau tutorial) / thắng / thua. */
+export const LEVEL_START_EVENT = 'level-start';
 export const LEVEL_WIN_EVENT = 'level-win';
 export const LEVEL_LOSE_EVENT = 'level-lose';
 
@@ -119,6 +120,7 @@ export class OrderManager extends Component {
         });
         this.resetChatCountdown();
         this.updateLabel();
+        this.node.emit(LEVEL_START_EVENT);
     }
 
     private onTileTouched(event: { currentTarget: Node }): void {
