@@ -227,7 +227,7 @@ export class TutorialManager extends Component {
         if (!this.useGuide) this.showPlayHint();
     }
 
-    /** Không có thuyền trưởng: hiện chữ "Tap to play" (`playHint`, giữ vị trí đặt trong scene) trong lúc chơi mẫu. */
+    /** Không có thuyền trưởng: hiện chữ "Tap to play" (`playHint`, giữ vị trí đặt trong scene) tới lần chạm cốc mẫu đầu tiên. */
     private showPlayHint(): void {
         const hint = this.playHint;
         if (!hint) return;
@@ -267,6 +267,8 @@ export class TutorialManager extends Component {
 
     private onTileTap(tile: DrinkTile): void {
         if (this.used.has(tile) || !this.customer) return;
+        // "Tap to play" tắt ngay ở lần chạm cốc mẫu đầu tiên.
+        this.hidePlayHint();
         this.used.add(tile);
         Ply_SoundManager.Ins?.playFxOneShot(FxType.TapTile);
         tile.node.off(Node.EventType.TOUCH_END);
