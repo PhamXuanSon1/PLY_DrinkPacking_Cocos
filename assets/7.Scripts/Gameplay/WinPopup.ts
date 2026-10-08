@@ -1,9 +1,24 @@
-import { _decorator, Animation, BlockInputEvents, Color, Component, Graphics, Node, Sprite, SpriteFrame, Tween, tween, UIOpacity, UITransform, Vec3 } from 'cc';
+import { _decorator, Animation, BlockInputEvents, Color, Component, director, Enum, Graphics, Node, Sprite, SpriteFrame, Tween, tween, UIOpacity, UITransform, Vec3 } from 'cc';
 import { gc } from '../Tool/GameController';
 import { ui } from '../Manager/UI';
-import { LEVEL_WIN_EVENT, OrderManager } from './OrderManager';
+import { LEVEL_LOSE_EVENT, LEVEL_WIN_EVENT, OrderManager } from './OrderManager';
+import { TutorialManager } from './TutorialManager';
 import { FxType, Ply_SoundManager } from '../MyScript/ScriptTemplate/Ply_SoundManager';
 const { ccclass, property } = _decorator;
+
+/** Endcard hiện khi thắng hay khi thua. */
+export enum PopupResult {
+    Win,
+    Lose,
+}
+
+/** Bấm nút chính của endcard thì làm gì. */
+export enum PopupButton {
+    /** Mở store. */
+    Store,
+    /** Chơi lại: tải lại scene, bỏ qua tutorial. */
+    Replay,
+}
 
 /** Các nhóm thuộc tính trong Inspector, mỗi nhóm là một header gập / mở được. */
 const GROUP = {
@@ -17,6 +32,8 @@ const SPARK_COLORS = [new Color(255, 214, 90, 255), new Color(255, 170, 50, 255)
 
 /**
  * Endcard khi thắng (thay cho End/Win cũ): ruy băng Level Complete, logo game và nút tải.
+ * Đặt `result` = Lose để dùng làm endcard thua (LosePopup: ruy băng "YOU LOSE", logo, nút Replay)
+ * — cùng animation nhưng không pháo hoa / tia lửa, phát sound thua.
  * Nền tối + tia sáng xoay sau logo → ruy băng bật ra → logo bật ra → nút bật ra rồi chạy anim
  * nhún có sẵn (Animation trên nút), pháo hoa hai bên logo, tia lửa bay lên.
  * Chạm bất kỳ đâu (hoặc nút) mở store.
@@ -33,7 +50,16 @@ const SPARK_COLORS = [new Color(255, 214, 90, 255), new Color(255, 170, 50, 255)
  */
 @ccclass('WinPopup')
 export class WinPopup extends Component {
-    @property({ type: OrderManager, tooltip: 'Nghe sự kiện thắng (level-win) để hiện endcard', group: GROUP.refs })
+    @property({ type: Enum(PopupResult), tooltip: 'Win: hiện khi thắng. Lose: hiện khi thua' })
+    result = PopupResult.Win;
+
+    @property({ type: Enum(PopupButton), tooltip: 'Nút chính: Store = mở store, Replay = chơi lại (bỏ qua tutorial). Chạm ngoài nút luôn mở store' })
+    buttonAction = PopupButton.Store;
+
+    @property({ tooltip: 'Pháo hoa + tia lửa bay lên (tắt cho endcard thua)' })
+    celebrate = true;
+
+    @property({ type: OrderManager, tooltip: 'Nghe sự kiện thắng / thua để hiện endcard', group: GROUP.refs })
     orderManager: OrderManager | null = null;
 
     @property({ type: Node, tooltip: 'Nền tối (Graphics, tự vẽ)', group: GROUP.refs })
@@ -74,13 +100,17 @@ export class WinPopup extends Component {
         // Endcard đã hiện thì chạm bất kỳ đâu cũng mở store: Dim phủ toàn màn hình nhận mọi chạm
         // ngoài nút; nút có listener riêng (Dim không phải cha của nút nên không gọi trùng).
         this.dim?.on(Node.EventType.TOUCH_END, this.onDownload, this);
-        this.button?.on(Node.EventType.TOUCH_END, this.onDownload, this);
-        this.orderManager?.node.on(LEVEL_WIN_EVENT, this.onWin, this);
+        this.button?.on(Node.EventType.TOUCH_END, this.onButton, this);
+        this.orderManager?.node.on(this.eventName, this.onWin, this);
         this.node.active = false;
     }
 
     onDestroy(): void {
-        this.orderManager?.node.off(LEVEL_WIN_EVENT, this.onWin, this);
+        this.orderManager?.node.off(this.eventName, this.onWin, this);
+    }
+
+    private get eventName(): string {
+        return this.result === PopupResult.Lose ? LEVEL_LOSE_EVENT : LEVEL_WIN_EVENT;
     }
 
     private onWin(): void {
@@ -92,7 +122,10 @@ export class WinPopup extends Component {
     show(): void {
         if (this.shown) return;
         this.shown = true;
-        Ply_SoundManager.Ins?.playFx(FxType.LevelWin);
+        // Endcard hiện thì tắt nhạc nền, chỉ còn sound thắng / thua.
+        Ply_SoundManager.Ins?.stopBGM();
+        if (this.result === PopupResult.Lose) Ply_SoundManager.Ins?.playFail();
+        else Ply_SoundManager.Ins?.playFx(FxType.LevelWin);
         this.node.active = true;
         this.node.setSiblingIndex(this.node.parent ? this.node.parent.children.length - 1 : 0);
         // Logo + nút tải ở góc màn hình (UI.fisrtOn) trùng với endcard nên ẩn đi.
@@ -116,6 +149,7 @@ export class WinPopup extends Component {
         this.popIn(this.logo, 0.3);
         this.popIn(this.button, 0.5, () => buttonAnim?.play());
 
+        if (!this.celebrate) return;
         this.scheduleOnce(() => this.fireworks(), 0.35);
         this.scheduleOnce(() => this.fireworks(), 0.75);
         this.scheduleOnce(() => this.fireworks(), 1.15);
@@ -139,6 +173,15 @@ export class WinPopup extends Component {
 
     private onDownload(): void {
         gc?.redirectToStore();
+    }
+
+    private onButton(): void {
+        if (this.buttonAction !== PopupButton.Replay) return this.onDownload();
+        // Chơi lại: tải lại scene, lần này vào thẳng màn chơi.
+        TutorialManager.skipNext = true;
+        Ply_SoundManager.Ins?.stopAll();
+        const scene = director.getScene();
+        if (scene) director.loadScene(scene.name);
     }
 
     /** Pháo hoa lấp lánh ở hai bên logo. */

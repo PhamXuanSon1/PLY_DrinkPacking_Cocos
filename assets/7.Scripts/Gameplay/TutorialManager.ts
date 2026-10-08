@@ -1,4 +1,4 @@
-import { _decorator, Animation, BlockInputEvents, Color, Component, Graphics, Label, Node, RichText, SpriteFrame, Tween, tween, UIOpacity, UITransform, Vec3 } from 'cc';
+import { _decorator, Animation, BlockInputEvents, CCObject, Color, Component, Graphics, Label, Node, RichText, SpriteFrame, Tween, tween, UIOpacity, UITransform, Vec3 } from 'cc';
 import { DrinkTile } from '../MapTool/DrinkTile';
 import { LevelMapBuilder } from '../MapTool/LevelMapBuilder';
 import { ui } from '../Manager/UI';
@@ -9,6 +9,7 @@ const { ccclass, property } = _decorator;
 
 /** Các nhóm thuộc tính trong Inspector, mỗi nhóm là một header gập / mở được. */
 const GROUP = {
+    main: { id: 'main', name: 'Tutorial', displayOrder: -1, style: 'section' },
     refs: { id: 'refs', name: 'Tham chiếu', displayOrder: 0, style: 'section' },
     guide: { id: 'guide', name: 'Thuyền trưởng', displayOrder: 1, style: 'section' },
     play: { id: 'play', name: 'Lượt chơi mẫu', displayOrder: 2, style: 'section' },
@@ -23,6 +24,8 @@ const GROUP = {
  *    người chơi bấm để giao (dùng chung animation giao cốc / đủ đơn của CustomerController).
  * 4. Đủ đơn: câu 3 → "Tap to continue" → thuyền trưởng rời đi, bàn thật hiện ra và
  *    OrderManager.startLevel() bắt đầu màn chơi.
+ * Tắt `useGuide`: bỏ bước 2 và phần thoại ở bước 4 — khách đứng sẵn → đơn + 3 cốc mẫu →
+ * đủ đơn, khách rời đi là vào màn chơi luôn.
  *
  * Cấu trúc node:
  * Tutorial (TutorialManager)
@@ -36,7 +39,10 @@ const GROUP = {
  */
 @ccclass('TutorialManager')
 export class TutorialManager extends Component {
-    @property({ tooltip: 'Bật tutorial khi vào màn. Tắt = vào thẳng màn chơi' })
+    /** Bật trước khi tải lại scene (nút Replay của endcard): lần vào màn tới bỏ qua tutorial. */
+    static skipNext = false;
+
+    @property({ tooltip: 'Bật tutorial khi vào màn. Tắt = vào thẳng màn chơi', group: GROUP.main })
     playTutorial = true;
 
     @property({ type: OrderManager, group: GROUP.refs })
@@ -56,6 +62,9 @@ export class TutorialManager extends Component {
 
     @property({ type: Node, tooltip: 'Bàn tay chỉ (Tut/Hand)', group: GROUP.refs })
     hand: Node | null = null;
+
+    @property({ tooltip: 'Có thuyền trưởng dẫn truyện (thoại + "Tap to continue"). Tắt = chỉ có lượt chơi mẫu: đủ đơn là vào màn chơi luôn', group: GROUP.guide })
+    useGuide = true;
 
     @property({ type: Node, tooltip: 'Gốc thuyền trưởng (trượt vào / ra)', group: GROUP.guide })
     guide: Node | null = null;
@@ -115,6 +124,9 @@ export class TutorialManager extends Component {
     @property({ tooltip: 'Khoảng cách giữa các ô khay chờ trong lúc tutorial (px), căn giữa', group: GROUP.play })
     tutorialSlotSpacing = 170;
 
+    @property({ type: Node, tooltip: 'Chữ "Tap to play" hiện trong lúc chơi mẫu khi tắt Use Guide. Node thật trong scene: kéo tới đâu thì hiện ở đó (xem trong View Intro)', group: GROUP.play })
+    playHint: Node | null = null;
+
     private customer: CustomerController | null = null;
     /** Trạng thái gốc để trả lại khi tutorial xong: scale cụm quầy, vị trí đĩa tutorial, các đĩa bị ẩn. */
     private focusBaseScale: Vec3 | null = null;
@@ -144,7 +156,12 @@ export class TutorialManager extends Component {
         }
         if (this.hand) this.hand.active = false;
         if (this.tapHint) this.tapHint.active = false;
+        if (this.playHint) this.playHint.active = false;
         this.drawBubble();
+        if (TutorialManager.skipNext) {
+            TutorialManager.skipNext = false;
+            this.playTutorial = false;
+        }
         if (!this.playTutorial) return;
         // onLoad của mọi node chạy trước start, nên OrderManager sẽ không tự bắt đầu màn.
         if (this.orderManager) this.orderManager.autoStart = false;
@@ -179,7 +196,7 @@ export class TutorialManager extends Component {
         // Khách tutorial đứng sẵn ở quầy, không trượt vào.
         this.customer.show(this.customerAvatar, frame, false, true);
         for (const g of this.customer.ghosts) g.node.active = false;
-        this.scheduleOnce(() => this.showGuide(), 0.3);
+        this.scheduleOnce(() => (this.useGuide ? this.showGuide() : this.startPlay()), 0.3);
     }
 
     /** Bước 2: thuyền trưởng trượt vào, nói câu 1 → chạm → câu 2 → vào lượt chơi mẫu. */
@@ -207,6 +224,24 @@ export class TutorialManager extends Component {
         });
         this.spawnTiles();
         this.scheduleOnce(() => this.showHand(), 0.5);
+        if (!this.useGuide) this.showPlayHint();
+    }
+
+    /** Không có thuyền trưởng: hiện chữ "Tap to play" (`playHint`, giữ vị trí đặt trong scene) trong lúc chơi mẫu. */
+    private showPlayHint(): void {
+        const hint = this.playHint;
+        if (!hint) return;
+        hint.active = true;
+        const op = hint.getComponent(UIOpacity);
+        if (op) {
+            Tween.stopAllByTarget(op);
+            op.opacity = 255;
+        }
+        hint.getComponent(Animation)?.play();
+    }
+
+    private hidePlayHint(): void {
+        if (this.playHint) this.playHint.active = false;
     }
 
     private spawnTiles(): void {
@@ -249,6 +284,12 @@ export class TutorialManager extends Component {
 
     /** Bước 4: đủ đơn → khách vui rồi đi, thuyền trưởng nói câu 3; cả hai xong mới cho chạm để vào game. */
     private complete(): void {
+        // Không có thuyền trưởng: khách vui rồi đi là vào màn chơi luôn, không chờ chạm.
+        if (!this.useGuide) {
+            this.hidePlayHint();
+            this.customer?.leave(() => this.finish());
+            return;
+        }
         let typed = false;
         let left = false;
         const next = (): void => {
@@ -414,6 +455,48 @@ export class TutorialManager extends Component {
         const to = visible ? 255 : 0;
         if (duration <= 0) op.opacity = to;
         else tween(op).to(duration, { opacity: to }).start();
+    }
+
+    /**
+     * Chỉ dùng trong editor (EditorViewSwitcher, view Intro): dựng cảnh tutorial để xem trước —
+     * khách giữa với avatar + đơn mẫu, 3 cốc mẫu (không được lưu vào scene). Không đổi vị trí /
+     * scale node nào; trả về các node cần ẩn (đĩa khác, ô khay ngoài tutorialSlots, thuyền trưởng
+     * khi tắt useGuide) để EditorViewSwitcher ẩn và tự bật lại khi chạy game.
+     * `on` = false: chỉ dọn cốc mẫu.
+     */
+    editorPreview(on: boolean): Node[] {
+        const root = this.tileRoot;
+        if (root) for (const c of [...root.children]) if (c.name.startsWith('TutTile_')) c.destroy();
+        if (!on) return [];
+        const all = this.node.scene.getComponentsInChildren(CustomerController);
+        const customer = this.middle(all);
+        if (!customer) return [];
+        const frame = this.mapBuilder?.drinkFrames[this.drinkId] ?? null;
+        if (customer.avatar && this.customerAvatar) {
+            customer.avatar.spriteFrame = this.customerAvatar;
+            customer.fitAvatar(this.customerAvatar);
+        }
+        for (const g of customer.ghosts) {
+            g.node.active = true;
+            g.spriteFrame = frame;
+        }
+        if (root && this.mapBuilder) {
+            const s = this.tileScale;
+            for (let i = 0; i < 3; i++) {
+                const node = this.mapBuilder.createTile(root, this.drinkId, `TutTile_${i}`);
+                node.hideFlags |= CCObject.Flags.DontSave;
+                node.setPosition((i - 1) * this.tileSpacing, 0, 0);
+                node.setScale(s, s, 1);
+            }
+        }
+        const tray = customer.node.parent;
+        const hide = all.map(c => c.node.parent).filter((t): t is Node => !!t && t !== tray);
+        const slots = this.tutorialSlots.filter(n => n?.isValid);
+        const slotParent = slots[0]?.parent;
+        if (slotParent) hide.push(...slotParent.children.filter(c => !slots.includes(c)));
+        if (!this.useGuide) hide.push(...[this.guide, this.blocker].filter((n): n is Node => !!n));
+        else if (this.playHint) hide.push(this.playHint);
+        return hide;
     }
 
     /** Khách đứng gần giữa màn hình nhất. */
