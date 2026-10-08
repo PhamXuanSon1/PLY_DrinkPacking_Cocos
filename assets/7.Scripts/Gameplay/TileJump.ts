@@ -2,23 +2,32 @@ import { Node, Sprite, Tween, tween, UIOpacity, UITransform, Vec3 } from 'cc';
 
 /**
  * Cho `node` nhảy theo đường vòng cung tới node `target` (cộng thêm `offset` theo world),
- * giữ nguyên parent và scale trong lúc bay. Vị trí đích được tính lại mỗi frame nên vẫn
+ * giữ nguyên parent trong lúc bay. Vị trí đích được tính lại mỗi frame nên vẫn
  * đáp đúng khi `target` đang di chuyển. Khi đáp mới gán `node` làm con của `parent`
  * (giữ nguyên transform world).
+ * `matchScale` = true: scale world của cốc đổi dần từ lúc cất cánh tới scale world của
+ * `parent` × `sizeRatio`, để cốc bay từ bàn (có thể bị thu nhỏ cho vừa màn) vẫn đáp lên
+ * đĩa / khay đúng cỡ. `sizeRatio` dùng khi chỗ đáp cần cốc to hơn cốc trên bàn (ví dụ bằng ảnh Ghost).
  */
-export function jumpTo(node: Node, parent: Node, target: Node, offset: Vec3 | null, done: (() => void) | undefined, duration: number, height: number): void {
+export function jumpTo(node: Node, parent: Node, target: Node, offset: Vec3 | null, done: (() => void) | undefined, duration: number, height: number, matchScale = true, sizeRatio = 1): void {
     Tween.stopAllByTarget(node);
     const start = node.worldPosition.clone();
     const end = new Vec3();
     const pos = new Vec3();
+    const startScale = node.worldScale.clone();
+    const endScale = new Vec3();
+    const scale = new Vec3();
     const state = { k: 0 };
     tween(state)
         .to(duration, { k: 1 }, {
             easing: 'linear',
             onUpdate: () => {
                 const k = state.k;
+                if (matchScale) Vec3.lerp(scale, startScale, Vec3.multiplyScalar(endScale, parent.worldScale, sizeRatio), k);
+                else scale.set(startScale);
                 end.set(target.worldPosition);
-                if (offset) end.add(offset);
+                // offset đo lúc cất cánh nên co giãn theo scale hiện tại của cốc.
+                if (offset) end.add3f(offset.x * scale.x / startScale.x, offset.y * scale.y / startScale.y, 0);
                 Vec3.lerp(pos, start, end, k);
                 // Đỉnh cung luôn cao hơn điểm cao nhất (đầu/cuối) một đoạn `height`, để cốc vọt
                 // lên rồi rơi xuống đáp kể cả khi đích nằm cao hơn nhiều so với điểm xuất phát.
@@ -28,6 +37,7 @@ export function jumpTo(node: Node, parent: Node, target: Node, offset: Vec3 | nu
                 const u = 1 - k;
                 pos.y = u * u * start.y + 2 * u * k * c + k * k * end.y;
                 node.setWorldPosition(pos);
+                if (matchScale) node.setWorldScale(scale);
             },
         })
         .call(() => {

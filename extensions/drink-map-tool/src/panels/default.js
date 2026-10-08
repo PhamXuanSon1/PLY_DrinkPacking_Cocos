@@ -456,8 +456,19 @@ function refresh(panel) {
     renderStats(panel);
 }
 
+/** Panel dock mở ngay khi khởi động editor, lúc asset-db chưa sẵn sàng thì mọi ảnh đều tra không ra. */
+async function waitAssetDb() {
+    for (let i = 0; i < 120; i++) {
+        try {
+            if (await Editor.Message.request('asset-db', 'query-ready')) return;
+        } catch (e) { /* asset-db chưa nhận message */ }
+        await new Promise((r) => setTimeout(r, 500));
+    }
+}
+
 async function loadSprites(panel) {
-    const res = await req('resolve-sprites', panel.$.spriteRoot.value, Math.max(1, num(panel.$.maxId, 10)) - 1);
+    await waitAssetDb();
+    const res =await req('resolve-sprites', panel.$.spriteRoot.value, Math.max(1, num(panel.$.maxId, 10)) - 1);
     if (res && res.drinks) sprites = res;
     const missing = sprites.drinks.map((d, i) => (d && d.uuid ? -1 : i)).filter((i) => i >= 0);
     panel.$.status.textContent = missing.length ? 'Thiếu ảnh cốc ID: ' + missing.join(', ') : 'Đã tải ảnh.';

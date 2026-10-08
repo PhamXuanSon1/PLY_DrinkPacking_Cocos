@@ -243,7 +243,7 @@ export class TutorialManager extends Component {
         const index = this.used.size - 1;
         this.customer.receive(tile.node, index, () => {
             if (++this.landed === this.tiles.length) this.complete();
-        });
+        }, false);
         if (this.used.size < this.tiles.length) this.scheduleOnce(() => this.showHand(), 0.45);
     }
 

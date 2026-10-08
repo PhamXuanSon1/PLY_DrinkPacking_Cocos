@@ -220,8 +220,11 @@ export class CustomerController extends Component {
         for (const tick of this.ticks) tick.active = false;
     }
 
-    /** Cho cốc thật nhảy tới điểm đáp thứ `index`; gọi `landed` khi đáp xong. */
-    receive(tile: Node, index: number, landed: () => void): void {
+    /**
+     * Cho cốc thật nhảy tới điểm đáp thứ `index`; gọi `landed` khi đáp xong.
+     * `matchScale` = true: cốc to / nhỏ dần trong lúc bay cho bằng cỡ trên đĩa; false = giữ cỡ (cốc mẫu tutorial).
+     */
+    receive(tile: Node, index: number, landed: () => void, matchScale = true): void {
         const slot = this.cupSlots[index];
         this.delivered.push(tile);
         // Trên đĩa chỉ hiện cốc: thẻ nền mờ đi lúc cốc nhích lên (liftOff), rồi căn tâm của
@@ -240,7 +243,15 @@ export class CustomerController extends Component {
             }
             // Báo đã đáp sau khi nhún xong, để animation đủ đơn không cắt ngang cú nhún của cốc cuối.
             this.bounce(tile, landed);
-        }, 0.35, this.jumpHeight), this.liftHeight, this.liftDuration, this.liftCardScale);
+        }, 0.35, this.jumpHeight, matchScale, this.ghostRatio(index, cup)), this.liftHeight, this.liftDuration, this.liftCardScale);
+    }
+
+    /** Cốc trên đĩa cao bằng ảnh Ghost: tỉ lệ chiều cao Ghost / chiều cao cốc (cùng hệ scale 1). */
+    private ghostRatio(index: number, cup: Node | null): number {
+        const ghost = this.ghosts[index]?.node;
+        const gh = ghost?.getComponent(UITransform)?.height ?? 0;
+        const ch = cup?.getComponent(UITransform)?.height ?? 0;
+        return ghost && cup && gh && ch ? (gh * ghost.scale.y) / (ch * cup.scale.y) : 1;
     }
 
     /** FX lúc cốc snap vào điểm đáp: lóe sáng + kim tuyến theo kích thước cốc trên màn hình. */
