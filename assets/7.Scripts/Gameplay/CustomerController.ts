@@ -16,6 +16,7 @@ const GROUP = {
     done: { id: 'done', name: 'Đủ đơn', displayOrder: 4, style: 'section' },
     praise: { id: 'praise', name: 'Chữ khen', displayOrder: 5, style: 'section' },
     heartFx: { id: 'heartFx', name: 'Tim & FX', displayOrder: 6, style: 'section' },
+    angry: { id: 'angry', name: 'Nổi nóng', displayOrder: 7, style: 'section' },
 };
 
 /**
@@ -114,6 +115,15 @@ export class CustomerController extends Component {
     @property({ type: CustomerFx, tooltip: 'Lớp hiệu ứng (lấp lánh, confetti, vệt gió); để trống = không có FX', group: GROUP.heartFx })
     fx: CustomerFx | null = null;
 
+    @property({ type: Color, tooltip: 'Màu mặt khách lúc giận nhất (sắp hết giờ / bỏ đi)', group: GROUP.angry })
+    angryColor = new Color(255, 110, 110, 255);
+
+    @property({ type: Node, tooltip: 'Icon giận hiện trên đầu khách khi bỏ đi; để trống = tự tạo chữ 💢', group: GROUP.angry })
+    angryIcon: Node | null = null;
+
+    @property({ tooltip: 'Khách giận rung người bao lâu trước khi bỏ đi (giây)', group: GROUP.angry })
+    angryShakeDuration = 0.45;
+
     @property({ type: Node, tooltip: 'Lớp vẽ avatar phía sau quầy (đặt trước Table trong UI_SlotBar). Khi chạy, Avatar được chuyển sang lớp này và bám theo khách; để trống = Avatar nằm trong Customer như cũ', group: GROUP.character })
     avatarLayer: Node | null = null;
 
@@ -123,6 +133,8 @@ export class CustomerController extends Component {
     private homePosition: Vec3 | null = null;
     /** Target của tween trượt vào / ra (xem `slide`). */
     private readonly slideState = { x: 0 };
+    /** Target tween rung người khi giận (cùng lý do với slideState: không gắn vào node). */
+    private readonly shakeState = { t: 0 };
     /** Chiều cao Avatar đặt trong scene, dùng làm chuẩn khi đổi ảnh nhân vật. */
     private avatarHeight: number | null = null;
     /** Vị trí gốc của chữ khen đặt trong scene (chữ bay lên khi mờ dần). */
@@ -183,12 +195,16 @@ export class CustomerController extends Component {
     /**
      * Hiện khách mới: ảnh mờ của đơn hiện ngay trên đĩa, Avatar trượt vào từ bên trái.
      * `talk` = true: khách nói một câu (CustomerChat) ngay khi trượt vào xong.
+     * `arrived`: gọi khi khách đã đứng vào chỗ (trượt vào xong; `instant` thì gọi ngay).
      */
-    show(avatarFrame: SpriteFrame | null, drinkFrame: SpriteFrame | null, talk = false, instant = false): void {
+    show(avatarFrame: SpriteFrame | null, drinkFrame: SpriteFrame | null, talk = false, instant = false, arrived?: () => void): void {
         if (!this.homePosition) this.homePosition = this.slideNode.position.clone();
         const home = this.homePosition;
         this.node.active = true;
         this.hideHeart();
+        Tween.stopAllByTarget(this.shakeState);
+        this.setAnger(0);
+        this.hideAngryIcon();
         if (this.praiseNode) this.praiseNode.active = false;
         this.sendToBack();
         const chat = this.getComponent(CustomerChat);
@@ -200,7 +216,10 @@ export class CustomerController extends Component {
             this.slideNode.setPosition(home.x, p.y, p.z);
             if (talk) chat?.say();
         } else {
-            this.slide(home.x - this.slideDistance, home.x, this.slideDuration, 'quadOut', talk ? () => chat?.say() : undefined);
+            this.slide(home.x - this.slideDistance, home.x, this.slideDuration, 'quadOut', () => {
+                if (talk) chat?.say();
+                arrived?.();
+            });
             Ply_SoundManager.Ins?.playFxOneShot(FxType.DoorOpen, 0.6);
             this.fx?.speedLines(this.slideNode, this.slideDuration * 0.7);
         }
@@ -218,6 +237,7 @@ export class CustomerController extends Component {
             if (ut && rect && rect.height) ut.width = ut.height * rect.width / rect.height;
         }
         for (const tick of this.ticks) tick.active = false;
+        if (instant) arrived?.();
     }
 
     /**
@@ -307,6 +327,85 @@ export class CustomerController extends Component {
                 });
             }, Math.max(this.doneHoldDuration, this.praiseDuration));
         });
+    }
+
+    /** Mặt khách đỏ dần theo mức giận `t` (0 = bình thường, 1 = `angryColor`). */
+    setAnger(t: number): void {
+        if (!this.avatar) return;
+        const k = Math.min(1, Math.max(0, t));
+        this.avatar.color = Color.lerp(new Color(), Color.WHITE, this.angryColor, k);
+    }
+
+    /**
+     * Hết giờ: khách đỏ mặt, hiện icon giận, rung người rồi trượt ra (không tim, không chữ khen);
+     * gọi `done` khi đã ra khỏi màn. Đĩa và các cốc đã giao giữ nguyên trên quầy để khách sau
+     * nhận tiếp cùng đơn (xem OrderManager), nên node Customer không bị tắt.
+     */
+    angryLeave(done: () => void): void {
+        this.getComponent(CustomerChat)?.stop();
+        this.setAnger(1);
+        this.showAngryIcon();
+        Tween.stopAllByTarget(this.slideState);
+        const node = this.slideNode;
+        const home = this.homePosition ?? node.position;
+        const baseX = node.position.x;
+        const shake = this.shakeState;
+        Tween.stopAllByTarget(shake);
+        shake.t = 0;
+        tween(shake)
+            .to(this.angryShakeDuration, { t: 1 }, {
+                onUpdate: () => {
+                    if (!node.isValid) return;
+                    const p = node.position;
+                    node.setPosition(baseX + Math.sin(shake.t * Math.PI * 10) * 12 * (1 - shake.t * 0.5), p.y, p.z);
+                },
+            })
+            .call(() => {
+                this.sendToBack();
+                Ply_SoundManager.Ins?.playFxOneShot(FxType.DoorOpen, 0.6);
+                this.slide(baseX, home.x - this.slideDistance, this.exitDuration * 1.5, 'quadIn', () => {
+                    this.hideAngryIcon();
+                    this.setAnger(0);
+                    done();
+                });
+            })
+            .start();
+    }
+
+    /**
+     * Sau `show()` cho khách thay thế nhận tiếp đơn dở: các cốc đã giao / đang bay tới (`reserved`)
+     * không hiện ảnh mờ, cốc đã đáp (`landed`) có dấu tick.
+     */
+    restoreProgress(reserved: number, landed: number): void {
+        this.ghosts.forEach((g, i) => (g.node.active = i >= reserved));
+        this.ticks.forEach((t, i) => (t.active = i < landed));
+    }
+
+    private showAngryIcon(): void {
+        const avatar = this.avatar?.node;
+        if (!avatar) return;
+        let icon = this.angryIcon;
+        if (!icon) {
+            icon = new Node('AngryIcon');
+            icon.layer = avatar.layer;
+            icon.addComponent(UITransform);
+            const label = icon.addComponent(Label);
+            label.string = '💢';
+            label.fontSize = 64;
+            label.lineHeight = 70;
+            const h = avatar.getComponent(UITransform)?.height ?? 200;
+            avatar.addChild(icon);
+            icon.setPosition(h * 0.25, h * 0.4, 0);
+            this.angryIcon = icon;
+        }
+        icon.active = true;
+        Tween.stopAllByTarget(icon);
+        icon.setScale(0, 0, 1);
+        tween(icon).to(0.2, { scale: new Vec3(1.2, 1.2, 1) }, { easing: 'backOut' }).to(0.1, { scale: Vec3.ONE }).start();
+    }
+
+    private hideAngryIcon(): void {
+        if (this.angryIcon?.isValid) this.angryIcon.active = false;
     }
 
     /** Vài ngôi sao trắng nhấp nháy quanh người khách. */
@@ -427,7 +526,7 @@ export class CustomerController extends Component {
      * nên bị kéo méo/lệch. Giữ chiều cao gốc của Avatar, rộng theo tỉ lệ ảnh; anchor 0.5 nên
      * nhân vật luôn nằm giữa và chân vẫn đặt cùng một đường.
      */
-    private fitAvatar(frame: SpriteFrame): void {
+    fitAvatar(frame: SpriteFrame): void {
         const ut = this.avatar?.node.getComponent(UITransform);
         const rect = frame.rect;
         if (!ut || !rect.height) return;
@@ -466,6 +565,7 @@ export class CustomerController extends Component {
 
     onDestroy(): void {
         Tween.stopAllByTarget(this.slideState);
+        Tween.stopAllByTarget(this.shakeState);
         if (this.avatarRoot?.isValid) this.avatarRoot.destroy();
     }
 }

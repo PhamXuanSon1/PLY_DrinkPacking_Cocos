@@ -6,6 +6,22 @@ const { ccclass, property, executeInEditMode } = _decorator;
 /** Độ chồng lấp tối thiểu theo mỗi trục (px); chạm cạnh hoặc chồng lấp không quá 2 px thì không tính là bị che. */
 const COVER_EPS = 2;
 
+interface Box {
+    pos: Vec3;
+    size: { width: number; height: number };
+}
+
+/**
+ * Kiểm tra chồng lấp hình chữ nhật trong không gian cục bộ của node quản lý.
+ * Tính phần giao theo chiều rộng và chiều cao; cả hai đều phải lớn hơn COVER_EPS.
+ */
+function overlaps(a: Box, b: Box): boolean {
+    // Khoảng chồng lấp bằng nửa tổng kích thước trừ khoảng cách giữa hai tâm.
+    const w = (a.size.width + b.size.width) / 2 - Math.abs(a.pos.x - b.pos.x);
+    const h = (a.size.height + b.size.height) / 2 - Math.abs(a.pos.y - b.pos.y);
+    return w > COVER_EPS && h > COVER_EPS;
+}
+
 /**
  * Quản lý các ô của bản đồ đã tạo: tìm mọi DrinkTile bên dưới node này,
  * xác định ô nào bị che và đổi màu chúng. LevelMapBuilder chỉ tạo các node.
@@ -38,6 +54,8 @@ export class DrinkItemManager extends Component {
 
     /** Tất cả DrinkTile nằm dưới node quản lý, bao gồm cả ô đã được thu thập. */
     private tiles: DrinkTile[] = [];
+    /** Các ô còn trên bàn đang che từng ô (chỉ ô ở lớp cao hơn), tính lại mỗi lần refresh. */
+    private coverers = new Map<DrinkTile, DrinkTile[]>();
 
     /** Node chứa các cốc: boardRoot nếu được gán, ngược lại là chính node này. */
     private get board(): Node {
@@ -66,10 +84,15 @@ export class DrinkItemManager extends Component {
     refresh(): number {
         this.tiles = this.board.getComponentsInChildren(DrinkTile);
         const onBoard = this.tiles.filter(t => !t.collected);
+        // Đổi vị trí / kích thước sang hệ tọa độ của board một lần cho mỗi ô thay vì mỗi cặp.
+        const boxes = new Map(onBoard.map(t => [t, { pos: this.localPos(t), size: t.node.getComponent(UITransform)!.contentSize }]));
+        this.coverers.clear();
         let covered = 0;
         for (const t of onBoard) {
             // Chỉ ô ở lớp cao hơn mới che được ô hiện tại; chỉ cần một ô chồng lấp là đủ.
-            t.covered = onBoard.some(o => o.layer > t.layer && this.overlaps(t, o));
+            const by = onBoard.filter(o => o.layer > t.layer && overlaps(boxes.get(t)!, boxes.get(o)!));
+            this.coverers.set(t, by);
+            t.covered = by.length > 0;
             t.setTint(t.covered ? this.coveredColor : Color.WHITE);
             if (t.covered) covered++;
         }
@@ -108,18 +131,25 @@ export class DrinkItemManager extends Component {
     }
 
     /**
-     * Kiểm tra chồng lấp hình chữ nhật trong không gian cục bộ của node quản lý.
-     * Tính phần giao theo chiều rộng và chiều cao; cả hai đều phải lớn hơn COVER_EPS.
+     * Đếm số cốc mỗi loại lấy được theo từng "đợt bốc": phần tử 0 = cốc đang lộ, phần tử d = cốc
+     * sẽ lộ ra sau khi bốc hết các ô của đợt 0..d-1 (mọi ô đang che nó đều thuộc các đợt trước).
+     * Trả về `depth + 1` bảng drinkId -> số cốc.
      */
-    private overlaps(a: DrinkTile, b: DrinkTile): boolean {
-        const pa = this.localPos(a);
-        const pb = this.localPos(b);
-        const sa = a.node.getComponent(UITransform)!.contentSize;
-        const sb = b.node.getComponent(UITransform)!.contentSize;
-        // Khoảng chồng lấp bằng nửa tổng kích thước trừ khoảng cách giữa hai tâm.
-        const w = (sa.width + sb.width) / 2 - Math.abs(pa.x - pb.x);
-        const h = (sa.height + sb.height) / 2 - Math.abs(pa.y - pb.y);
-        return w > COVER_EPS && h > COVER_EPS;
+    reachableByDepth(depth: number): Map<number, number>[] {
+        const result: Map<number, number>[] = [];
+        const taken = new Set<DrinkTile>();
+        let wave = this.tiles.filter(t => this.isSelectable(t));
+        for (let d = 0; d <= depth && wave.length; d++) {
+            const counts = new Map<number, number>();
+            for (const t of wave) {
+                taken.add(t);
+                counts.set(t.drinkId, (counts.get(t.drinkId) ?? 0) + 1);
+            }
+            result.push(counts);
+            wave = [...this.coverers].filter(([t, by]) => !taken.has(t) && by.every(o => taken.has(o))).map(([t]) => t);
+        }
+        while (result.length <= depth) result.push(new Map());
+        return result;
     }
 
     /** Chuyển vị trí world của ô sang cùng hệ tọa độ cục bộ để so sánh với các ô khác. */

@@ -1,4 +1,6 @@
 import { _decorator, Component, find, Label, Node, SpriteFrame, Vec2 } from 'cc';
+import { CustomerTimer } from './CustomerTimer';
+import { gc, GameController } from '../Tool/GameController';
 import { DrinkItemManager } from '../MapTool/DrinkItemManager';
 import { DrinkTile } from '../MapTool/DrinkTile';
 import { LevelMapBuilder } from '../MapTool/LevelMapBuilder';
@@ -6,6 +8,14 @@ import { CustomerController } from './CustomerController';
 import { WaitTray } from './WaitTray';
 import { FxType, Ply_SoundManager } from '../MyScript/ScriptTemplate/Ply_SoundManager';
 const { ccclass, property } = _decorator;
+
+/** Các nhóm thuộc tính trong Inspector, mỗi nhóm là một header gập / mở được. */
+const GROUP = {
+    level: { id: 'level', name: 'Màn chơi', displayOrder: 0, style: 'section' },
+    refs: { id: 'refs', name: 'Tham chiếu', displayOrder: 1, style: 'section' },
+    order: { id: 'order', name: 'Khách & đơn', displayOrder: 2, style: 'section' },
+    timer: { id: 'timer', name: 'Đồng hồ', displayOrder: 3, style: 'section' },
+};
 
 /** Phát trên node này khi bắt đầu màn chơi (sau tutorial) / thắng / thua. */
 export const LEVEL_START_EVENT = 'level-start';
@@ -20,45 +30,67 @@ interface Order {
     /** Số cốc đã đáp xuống đĩa. */
     landed: number;
     done: boolean;
+    /** Khách hết giờ đang bỏ đi: không nhận cốc mới cho tới khi khách khác vào nhận tiếp đơn. */
+    leaving: boolean;
+    /** Thời gian đồng hồ cố định cho khách đầu tiên nhận đơn này (khách giữa đầu màn); không có = ngẫu nhiên. */
+    fixedTime?: number;
 }
 
 /**
  * Quản lý khách và đơn đồ uống.
  *
  * Đơn không xáo ngẫu nhiên mà được sinh động theo hướng dễ thắng nhất: mỗi khi
- * một chỗ trống, chọn loại đồ uống mà người chơi đang lấy được nhiều cốc nhất
- * (cốc trong khay + cốc đang lộ trên bàn). Mỗi loại chỉ được gọi tối đa
+ * một chỗ trống, chọn loại đồ uống mà người chơi gom đủ sớm nhất (cốc trong khay +
+ * cốc lộ / sắp lộ trên bàn, trừ phần đã dành cho khách đang đứng). Mỗi loại chỉ được gọi tối đa
  * (số cốc còn lại / cupsPerOrder) đơn nên tổng đơn luôn khớp tổng cốc.
  */
 @ccclass('OrderManager')
 export class OrderManager extends Component {
-    // Các thành phần gameplay được nối trong Inspector.
-    @property({ type: DrinkItemManager, tooltip: 'Quản lý các cốc trên bàn' })
+    // ── Màn chơi ──
+    @property({ tooltip: 'Tự bắt đầu màn khi vào scene. TutorialManager tắt cờ này và tự gọi startLevel() khi tutorial xong', group: GROUP.level })
+    autoStart = true;
+
+    @property({ tooltip: 'Thua khi có bấy nhiêu khách bỏ đi', group: GROUP.level })
+    maxWalkouts = 3;
+
+    // ── Tham chiếu: các thành phần gameplay được nối trong Inspector ──
+    @property({ type: DrinkItemManager, tooltip: 'Quản lý các cốc trên bàn', group: GROUP.refs })
     itemManager: DrinkItemManager | null = null;
 
-    @property({ type: LevelMapBuilder, tooltip: 'Lấy sprite đồ uống theo drinkId (drinkFrames) cho ảnh mờ của khách' })
+    @property({ type: LevelMapBuilder, tooltip: 'Lấy sprite đồ uống theo drinkId (drinkFrames) cho ảnh mờ của khách', group: GROUP.refs })
     mapBuilder: LevelMapBuilder | null = null;
 
-    @property({ type: [CustomerController], tooltip: 'Các chỗ đứng của khách (3 chỗ)' })
+    @property({ type: [CustomerController], tooltip: 'Các chỗ đứng của khách (3 chỗ)', group: GROUP.refs })
     customers: CustomerController[] = [];
 
-    @property({ type: WaitTray, tooltip: 'Khay chờ 6 ô' })
+    @property({ type: WaitTray, tooltip: 'Khay chờ 6 ô', group: GROUP.refs })
     tray: WaitTray | null = null;
 
-    @property({ type: [SpriteFrame], tooltip: 'Avatar khách, dùng lần lượt' })
-    avatarFrames: SpriteFrame[] = [];
-
-    @property({ type: Label, tooltip: 'Nhãn tiến độ "đã phục vụ/tổng"' })
+    @property({ type: Label, tooltip: 'Nhãn tiến độ "đã phục vụ/tổng"', group: GROUP.refs })
     progressLabel: Label | null = null;
 
-    @property({ tooltip: 'Số cốc mỗi đơn' })
+    // ── Khách & đơn ──
+    @property({ type: [SpriteFrame], tooltip: 'Avatar khách, dùng lần lượt', group: GROUP.order })
+    avatarFrames: SpriteFrame[] = [];
+
+    @property({ tooltip: 'Số cốc mỗi đơn', group: GROUP.order })
     cupsPerOrder = 3;
 
-    @property({ tooltip: 'Cứ ngẫu nhiên [x, y] khách mới vào thì có 1 khách nói (CustomerChat). Khách giữa luôn nói khi bắt đầu màn' })
+    @property({ tooltip: 'Khi chọn đơn mới, tính trước tối đa bao nhiêu đợt bốc (0 = chỉ cốc đang lộ). Đợt d = cốc lộ ra sau khi bốc hết các đợt trước', group: GROUP.order })
+    lookahead = 2;
+
+    @property({ tooltip: 'Cứ ngẫu nhiên [x, y] khách mới vào thì có 1 khách nói (CustomerChat). Khách giữa luôn nói khi bắt đầu màn', group: GROUP.order })
     chatEvery = new Vec2(2, 3);
 
-    @property({ tooltip: 'Tự bắt đầu màn khi vào scene. TutorialManager tắt cờ này và tự gọi startLevel() khi tutorial xong' })
-    autoStart = true;
+    // ── Đồng hồ ──
+    @property({ tooltip: 'Áp lực thời gian: mỗi khách có đồng hồ (CustomerTimer trên node Customer), hết giờ thì bỏ đi', group: GROUP.timer })
+    useTimer = true;
+
+    @property({ tooltip: 'Thời gian chờ của mỗi khách (đồng hồ), lấy ngẫu nhiên trong [x, y] giây. Áp dụng cho mọi khách', group: GROUP.timer })
+    customerTime = new Vec2(8, 10);
+
+    @property({ tooltip: 'Thời gian đồng hồ cố định (giây) của khách đứng giữa lúc bắt đầu màn. 0 = ngẫu nhiên như Customer Time', group: GROUP.timer })
+    firstCustomerTime = 8;
 
     /** Đơn theo từng vị trí khách; null nghĩa là vị trí đó đang trống hoặc chưa có đơn mới. */
     private active: (Order | null)[] = [];
@@ -72,8 +104,15 @@ export class OrderManager extends Component {
     private finished = false;
     /** Số khách mới còn phải vào trước khi có khách nói tiếp. */
     private chatCountdown = 0;
+    /** Số khách đã bỏ đi vì chờ quá lâu. */
+    private walkouts = 0;
+    /** Đồng hồ khách chỉ hiện và chạy từ lần click cốc đầu tiên trong màn chơi; trước đó ẩn. */
+    private clockStarted = false;
 
     start(): void {
+        // Đã ra store (GameController.stopGame): khóa cốc + dừng đồng hồ; quay lại game thì click
+        // chỉ mở lại store (StoreRedirect), cốc không bay nữa.
+        gc?.node.on(GameController.EVENT_STOP, this.onGameStop, this);
         if (!this.autoStart) return;
         // Chờ một frame để DrinkItemManager.start() quét xong các cốc.
         this.scheduleOnce(() => this.startLevel(), 0);
@@ -107,6 +146,8 @@ export class OrderManager extends Component {
         this.totalOrders = Math.floor(tiles.filter(t => !t.collected).length / this.cupsPerOrder);
         this.served = 0;
         this.spawned = 0;
+        this.walkouts = 0;
+        this.clockStarted = false;
         this.finished = false;
         this.tray?.reset();
         // Mỗi vị trí bắt đầu chưa có đơn; gọi khách cho từng vị trí bên dưới.
@@ -116,7 +157,7 @@ export class OrderManager extends Component {
         this.customers.forEach((c, i) => {
             c.node.active = false;
             // Lượt khách đầu màn đứng sẵn ở quầy, không trượt vào.
-            this.spawnCustomer(i, i === middle, true);
+            this.spawnCustomer(i, i === middle, true, i === middle && this.firstCustomerTime > 0 ? this.firstCustomerTime : undefined);
         });
         this.resetChatCountdown();
         this.updateLabel();
@@ -126,7 +167,11 @@ export class OrderManager extends Component {
     private onTileTouched(event: { currentTarget: Node }): void {
         const tile = event.currentTarget.getComponent(DrinkTile);
         // Bỏ qua cốc không hợp lệ, màn đã xong, hoặc cốc đang bị che / không chọn được.
-        if (!tile || this.finished || !this.itemManager?.isSelectable(tile)) return;
+        if (!tile || this.finished || gc?.stopped || !this.itemManager?.isSelectable(tile)) return;
+        if (!this.clockStarted) {
+            this.clockStarted = true;
+            this.customers.forEach((_, i) => this.timerOf(i)?.resume());
+        }
 
         const order = this.findOrder(tile.drinkId);
         if (!order && this.tray?.isFull()) return; // Khay đầy: không nhận thêm, không mất cốc.
@@ -144,7 +189,7 @@ export class OrderManager extends Component {
     private findOrder(drinkId: number): Order | null {
         let best: Order | null = null;
         for (const o of this.active) {
-            if (o && o.reserved < this.cupsPerOrder && o.drinkId === drinkId && (!best || o.reserved > best.reserved)) best = o;
+            if (o && !o.leaving && o.reserved < this.cupsPerOrder && o.drinkId === drinkId && (!best || o.reserved > best.reserved)) best = o;
         }
         return best;
     }
@@ -154,6 +199,8 @@ export class OrderManager extends Component {
         const slot = this.active.indexOf(order);
         // Đặt chỗ ngay khi bắt đầu bay để cốc tiếp theo không bị giao quá số lượng đơn.
         const index = order.reserved++;
+        // Đã giao đủ cốc (kể cả cốc đang bay): khách không còn chờ nữa.
+        if (order.reserved === this.cupsPerOrder) this.timerOf(slot)?.stop();
         this.customers[slot].receive(tile.node, index, () => {
             // Chỉ tính là đã tới nơi sau khi animation đáp xuống hoàn tất.
             order.landed++;
@@ -196,12 +243,21 @@ export class OrderManager extends Component {
      * Gọi khách mới vào chỗ `slot` nếu còn đơn, rồi giao luôn cốc phù hợp đang có trong khay.
      * `talk` không truyền: tự quyết định theo `chatEvery` (cứ 2–3 khách thì 1 khách nói khi vào).
      */
-    private spawnCustomer(slot: number, talk?: boolean, instant = false): void {
+    private spawnCustomer(slot: number, talk?: boolean, instant = false, fixedTime?: number): void {
         const drinkId = this.pickDrink();
         if (drinkId === null) return;
         this.unassigned.set(drinkId, this.unassigned.get(drinkId)! - this.cupsPerOrder);
-        const order: Order = { drinkId, reserved: 0, landed: 0, done: false };
+        const order: Order = { drinkId, reserved: 0, landed: 0, done: false, leaving: false, fixedTime };
         this.active[slot] = order;
+        this.showCustomer(slot, order, talk, instant);
+    }
+
+    /**
+     * Cho một khách (avatar kế tiếp) vào nhận đơn `order` ở chỗ `slot` và giao luôn cốc cùng loại
+     * đang chờ trong khay; đồng hồ chỉ hiện khi khách đã trượt vào tới chỗ đứng.
+     * Dùng cho khách mới và khách thay thế khách bỏ đi (đơn dở).
+     */
+    private showCustomer(slot: number, order: Order, talk?: boolean, instant = false): void {
         // Xoay vòng avatar theo thứ tự khách được tạo.
         const avatar = this.avatarFrames.length ? this.avatarFrames[this.spawned % this.avatarFrames.length] : null;
         this.spawned++;
@@ -209,31 +265,108 @@ export class OrderManager extends Component {
             talk = --this.chatCountdown <= 0;
             if (talk) this.resetChatCountdown();
         }
-        this.customers[slot].show(avatar, this.mapBuilder?.drinkFrames[drinkId] ?? null, talk, instant);
+        const customer = this.customers[slot];
+        customer.show(avatar, this.mapBuilder?.drinkFrames[order.drinkId] ?? null, talk, instant, () => this.startTimer(slot, order));
+        if (order.reserved > 0) customer.restoreProgress(order.reserved, order.landed);
 
-        // Tự chuyển cốc cùng loại đang chờ trong khay sang đơn mới.
-        for (const tile of this.tray?.take(drinkId, this.cupsPerOrder) ?? []) this.deliver(order, tile);
+        // Tự chuyển cốc cùng loại đang chờ trong khay sang đơn.
+        for (const tile of this.tray?.take(order.drinkId, this.cupsPerOrder - order.reserved) ?? []) this.deliver(order, tile);
     }
 
     /**
-     * Chọn loại đồ uống dễ phục vụ nhất. Điểm ưu tiên:
-     * 1. Số cốc lấy được ngay (khay + cốc đang lộ), tối đa bằng một đơn.
-     * 2. Cốc trong khay, để giải phóng khay.
-     * 3. Tránh trùng loại với khách đang đứng.
+     * Khách đã đứng vào chỗ: bật đồng hồ nếu vẫn còn chờ cốc (trong lúc trượt vào có thể đã được giao
+     * đủ từ khay). Trước click cốc đầu tiên đồng hồ ẩn và đứng yên; đã ra store thì đứng yên.
+     */
+    private startTimer(slot: number, order: Order): void {
+        if (!this.useTimer || this.finished || this.active[slot] !== order || order.leaving || order.reserved >= this.cupsPerOrder) return;
+        // Thời gian cố định chỉ áp cho khách đầu tiên của đơn; khách thay thế (nếu bỏ đi) lấy ngẫu nhiên.
+        const time = order.fixedTime ?? this.randomTime();
+        order.fixedTime = undefined;
+        this.timerOf(slot)?.begin(() => this.onTimeout(slot), time, !this.clockStarted || !!gc?.stopped, !this.clockStarted);
+    }
+
+    private randomTime(): number {
+        const min = Math.min(this.customerTime.x, this.customerTime.y);
+        const max = Math.max(this.customerTime.x, this.customerTime.y);
+        return min + Math.random() * (max - min);
+    }
+
+    private timerOf(slot: number): CustomerTimer | null {
+        return this.customers[slot]?.getComponent(CustomerTimer) ?? null;
+    }
+
+    /** Hết giờ: khách bỏ đi; đủ `maxWalkouts` khách bỏ đi thì thua, nếu không thì khách khác vào thay. */
+    private onTimeout(slot: number): void {
+        const order = this.active[slot];
+        if (this.finished || !order || order.done || order.leaving || order.reserved >= this.cupsPerOrder) return;
+        order.leaving = true;
+        this.walkouts++;
+        if (this.walkouts >= this.maxWalkouts) this.lose('walkouts');
+        this.customers[slot].angryLeave(() => this.replaceCustomer(slot, order));
+    }
+
+    /**
+     * Khách thay thế khách bỏ đi. Đơn chưa có cốc nào: trả cốc về danh sách chưa gán và gọi đơn
+     * mới như bình thường. Đơn dở (đã có cốc trên đĩa): khách mới nhận tiếp đúng đơn đó, cốc trên
+     * đĩa giữ nguyên nên không mất cốc nào.
+     */
+    private replaceCustomer(slot: number, order: Order): void {
+        if (this.finished) return;
+        order.leaving = false;
+        if (order.reserved === 0) {
+            this.unassigned.set(order.drinkId, (this.unassigned.get(order.drinkId) ?? 0) + this.cupsPerOrder);
+            this.active[slot] = null;
+            this.spawnCustomer(slot);
+        } else {
+            this.showCustomer(slot, order);
+        }
+        this.checkLose();
+    }
+
+    private onGameStop(): void {
+        this.customers.forEach((_, i) => this.timerOf(i)?.pause());
+    }
+
+    onDestroy(): void {
+        gc?.node?.off(GameController.EVENT_STOP, this.onGameStop, this);
+    }
+
+    private stopTimers(): void {
+        this.customers.forEach((_, i) => this.timerOf(i)?.stop());
+    }
+
+
+    /**
+     * Chọn loại đồ uống dễ phục vụ nhất. Số cốc "còn trống" của một loại = cốc trong khay + cốc
+     * lấy được trên bàn − số cốc các khách đang đứng còn thiếu của loại đó (đã được dành trước),
+     * để không có 2 khách cùng đòi 6 cốc khi bàn chỉ lộ 2 cốc. Điểm ưu tiên:
+     * 1. Đủ một đơn với số cốc còn trống sau ít đợt bốc nhất (0 = đang lộ, tối đa `lookahead`).
+     * 2. Số cốc còn trống lấy được ngay, tối đa bằng một đơn.
+     * 3. Cốc trong khay, để giải phóng khay.
+     * 4. Tránh trùng loại với khách đang đứng.
      */
     private pickDrink(): number | null {
-        const selectable = this.itemManager?.getSelectableTiles() ?? [];
+        const need = this.cupsPerOrder;
+        const reach = this.itemManager?.reachableByDepth(this.lookahead) ?? [new Map<number, number>()];
         let bestId: number | null = null;
         let bestScore = -Infinity;
         for (const [id, left] of this.unassigned) {
             // Không tạo đơn nếu số cốc còn lại không đủ cho một đơn hoàn chỉnh.
-            if (left < this.cupsPerOrder) continue;
+            if (left < need) continue;
             const inTray = this.tray?.count(id) ?? 0;
-            const visible = selectable.filter(t => t.drinkId === id).length;
-            const sameActive = this.active.filter(o => o && !o.done && o.drinkId === id).length;
-            // Ưu tiên loại có thể gom đủ nhanh, rồi loại đang chiếm khay; giảm điểm nếu
-            // đã có khách khác chờ cùng loại. `left` giúp phân định khi các điểm gần bằng nhau.
-            const score = Math.min(this.cupsPerOrder, inTray + visible) * 100 + inTray * 10 - sameActive * 50 + left;
+            const waiting = this.active.filter(o => o && !o.done && o.drinkId === id) as Order[];
+            const reserved = waiting.reduce((sum, o) => sum + need - o.reserved, 0);
+            // Cộng dồn cốc lấy được theo từng đợt bốc; tìm đợt sớm nhất gom đủ một đơn.
+            let free = inTray - reserved;
+            let readyAt = -1;
+            reach.forEach((counts, d) => {
+                free += counts.get(id) ?? 0;
+                if (readyAt < 0 && free >= need) readyAt = d;
+            });
+            const freeNow = inTray + (reach[0].get(id) ?? 0) - reserved;
+            const tier = readyAt < 0 ? 0 : reach.length - readyAt;
+            // `left` giúp phân định khi các điểm khác bằng nhau.
+            const score = tier * 1000 + Math.max(0, Math.min(need, freeNow)) * 100 + inTray * 10 - waiting.length * 50 + left;
             if (score > bestScore) {
                 bestScore = score;
                 bestId = id;
@@ -246,20 +379,28 @@ export class OrderManager extends Component {
         // Chỉ thắng khi mọi đơn đều đã được phục vụ và chưa có kết quả kết thúc trước đó.
         if (this.finished || this.served < this.totalOrders) return;
         this.finished = true;
+        this.stopTimers();
         console.log('[OrderManager] WIN');
         this.node.emit(LEVEL_WIN_EVENT);
     }
 
-    /** Thua khi khay đầy và không cốc lộ nào giao được cho khách đang chờ. */
+    /** Thua thêm một cách: khay đầy và không cốc lộ nào giao được cho khách đang chờ. */
     private checkLose(): void {
         if (this.finished || !this.tray?.isFull()) return;
         const canDeliver = (this.itemManager?.getSelectableTiles() ?? []).some(t => this.findOrder(t.drinkId));
-        const pending = this.active.some(o => o && (o.done || o.landed < o.reserved)); // Cốc đang bay / khách đang rời đi.
+        // Cốc đang bay / khách đang rời đi (vui hoặc giận, khách sau sẽ vào nhận đơn).
+        const pending = this.active.some(o => o && (o.done || o.leaving || o.landed < o.reserved));
         // Chưa thua nếu còn nước đi hợp lệ hoặc animation/khách rời đi chưa xử lý xong.
         if (canDeliver || pending) return;
+        this.lose('tray full');
+    }
+
+    private lose(reason: string): void {
+        if (this.finished) return;
         this.finished = true;
-        console.log('[OrderManager] LOSE');
-        Ply_SoundManager.Ins?.playFail();
+        this.stopTimers();
+        console.log(`[OrderManager] LOSE (${reason})`);
+        // Endcard thua (LosePopup = WinPopup với Result = Lose) nghe sự kiện này và tự phát sound thua.
         this.node.emit(LEVEL_LOSE_EVENT);
     }
 

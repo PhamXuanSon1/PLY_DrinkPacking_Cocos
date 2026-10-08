@@ -38,7 +38,9 @@ export class StoreRedirect extends Component {
     /** Đã ra store ít nhất một lần: từ đó mọi click đều mở store. */
     private redirected = false;
 
-    onLoad(): void {
+    // Gắn listener ở onEnable chứ không ở onLoad: onLoad vẫn chạy khi component bị bỏ tick,
+    // nên tắt component trong Inspector phải tắt được toàn bộ luật ra store.
+    onEnable(): void {
         if (!this.orderManager) this.orderManager = this.getComponent(OrderManager);
         const node = this.orderManager?.node;
         node?.on(LEVEL_START_EVENT, this.onLevelStart, this);
@@ -47,7 +49,9 @@ export class StoreRedirect extends Component {
         game.canvas?.addEventListener('pointerup', this.onClick);
     }
 
-    onDestroy(): void {
+    onDisable(): void {
+        this.playing = false;
+        this.unscheduleAllCallbacks();
         const node = this.orderManager?.node;
         node?.off(LEVEL_START_EVENT, this.onLevelStart, this);
         node?.off(LEVEL_WIN_EVENT, this.onWin, this);
