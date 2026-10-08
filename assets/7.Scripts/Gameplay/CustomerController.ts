@@ -1,4 +1,4 @@
-import { _decorator, Animation, Color, Component, Label, Node, Sprite, SpriteFrame, Tween, UIOpacity, UITransform, Vec3, tween } from 'cc';
+import { _decorator, Animation, CCObject, Color, Component, Label, Node, Sprite, SpriteFrame, Tween, UIOpacity, UITransform, Vec2, Vec3, tween } from 'cc';
 import { World } from '../Manager/World';
 import { PoolMember, PoolType } from '../Pool/PoolMember';
 import { CustomerChat } from './CustomerChat';
@@ -18,6 +18,67 @@ const GROUP = {
     heartFx: { id: 'heartFx', name: 'Tim & FX', displayOrder: 6, style: 'section' },
     angry: { id: 'angry', name: 'Nổi nóng', displayOrder: 7, style: 'section' },
 };
+
+/** Biểu cảm của khách. */
+export enum Expression {
+    Normal,
+    Happy,
+    Angry,
+}
+
+/** Một ảnh mặt và chỗ đặt nó trên ảnh thân (đơn vị: pixel của ảnh thân, so với tâm thân, y hướng lên). */
+@ccclass('FaceSetting')
+export class FaceSetting {
+    @property({ type: SpriteFrame, tooltip: 'Ảnh mặt' })
+    frame: SpriteFrame | null = null;
+
+    @property({ tooltip: 'Vị trí tâm mặt so với tâm ảnh thân (pixel ảnh thân, y hướng lên)' })
+    offset = new Vec2();
+
+    @property({ tooltip: 'Tỉ lệ ảnh mặt so với ảnh thân (1 = đúng cỡ pixel)' })
+    scale = 1;
+}
+
+/** Một nhân vật khách: ảnh thân (không mặt) + 3 mặt đặt chồng lên. Chỉnh trong CustomerLookLibrary. */
+@ccclass('CustomerLook')
+export class CustomerLook {
+    @property({ tooltip: 'Tên để dễ nhận (không dùng trong code)' })
+    name = '';
+
+    @property({ type: SpriteFrame, tooltip: 'Ảnh thân, không có mặt' })
+    body: SpriteFrame | null = null;
+
+    @property({ type: FaceSetting, tooltip: 'Mặt bình thường (lúc chờ)' })
+    normal = new FaceSetting();
+
+    @property({ type: FaceSetting, tooltip: 'Mặt vui (khi đủ đơn, rời đi)' })
+    happy = new FaceSetting();
+
+    @property({ type: FaceSetting, tooltip: 'Mặt giận (sắp hết giờ / bỏ đi)' })
+    angry = new FaceSetting();
+
+    face(expression: Expression): FaceSetting {
+        return expression === Expression.Happy ? this.happy : expression === Expression.Angry ? this.angry : this.normal;
+    }
+}
+
+/** Số đơn vị node ứng với 1 pixel ảnh thân, khi Avatar đang hiện ảnh thân `body`. */
+export function faceUnit(avatar: Node, body: SpriteFrame): number {
+    const h = avatar.getComponent(UITransform)?.height ?? 0;
+    return body.rect.height ? h / body.rect.height : 1;
+}
+
+/** Đặt node mặt `face` (con của Avatar) theo `setting`: ảnh, cỡ và vị trí đổi từ pixel ảnh thân. */
+export function layoutFace(avatar: Node, body: SpriteFrame, face: Node, setting: FaceSetting): void {
+    const frame = setting.frame;
+    if (!frame) return;
+    const k = faceUnit(avatar, body);
+    const sprite = face.getComponent(Sprite);
+    if (sprite && sprite.spriteFrame !== frame) sprite.spriteFrame = frame;
+    face.getComponent(UITransform)?.setContentSize(frame.rect.width * setting.scale * k, frame.rect.height * setting.scale * k);
+    face.setPosition(setting.offset.x * k, setting.offset.y * k, 0);
+    face.setScale(1, 1, 1);
+}
 
 /**
  * Điều khiển một khách: avatar, hiển thị đơn (ảnh mờ, nhận cốc, dấu tick).
@@ -115,9 +176,6 @@ export class CustomerController extends Component {
     @property({ type: CustomerFx, tooltip: 'Lớp hiệu ứng (lấp lánh, confetti, vệt gió); để trống = không có FX', group: GROUP.heartFx })
     fx: CustomerFx | null = null;
 
-    @property({ type: Color, tooltip: 'Màu mặt khách lúc giận nhất (sắp hết giờ / bỏ đi)', group: GROUP.angry })
-    angryColor = new Color(255, 110, 110, 255);
-
     @property({ type: Node, tooltip: 'Icon giận hiện trên đầu khách khi bỏ đi; để trống = tự tạo chữ 💢', group: GROUP.angry })
     angryIcon: Node | null = null;
 
@@ -127,6 +185,14 @@ export class CustomerController extends Component {
     @property({ type: Node, tooltip: 'Lớp vẽ avatar phía sau quầy (đặt trước Table trong UI_SlotBar). Khi chạy, Avatar được chuyển sang lớp này và bám theo khách; để trống = Avatar nằm trong Customer như cũ', group: GROUP.character })
     avatarLayer: Node | null = null;
 
+    /** Nhân vật của khách hiện tại (null = chỉ có 1 ảnh avatar, giận thì tô đỏ). */
+    private look: CustomerLook | null = null;
+    /** Biểu cảm đang hiện của `look`. */
+    private expression = Expression.Normal;
+    /** Node mặt (con của Avatar), tạo khi cần. */
+    private faceNode: Node | null = null;
+    /** Ảnh đang hiện trên Avatar, để không gán lại cùng một ảnh mỗi frame. */
+    private shownFrame: SpriteFrame | null = null;
     /** Các node cốc thật đã giao cho khách hiện tại. */
     private delivered: Node[] = [];
     /** Vị trí đứng của Avatar đặt trong scene; Avatar trượt vào tới đây và trượt ra từ đây. */
@@ -196,8 +262,11 @@ export class CustomerController extends Component {
      * Hiện khách mới: ảnh mờ của đơn hiện ngay trên đĩa, Avatar trượt vào từ bên trái.
      * `talk` = true: khách nói một câu (CustomerChat) ngay khi trượt vào xong.
      * `arrived`: gọi khi khách đã đứng vào chỗ (trượt vào xong; `instant` thì gọi ngay).
+     * `look`: nhân vật có biểu cảm (thân + mặt); có thì `avatarFrame` bị bỏ qua.
      */
-    show(avatarFrame: SpriteFrame | null, drinkFrame: SpriteFrame | null, talk = false, instant = false, arrived?: () => void): void {
+    show(avatarFrame: SpriteFrame | null, drinkFrame: SpriteFrame | null, talk = false, instant = false, arrived?: () => void, look: CustomerLook | null = null): void {
+        this.look = look?.body ? look : null;
+        this.expression = Expression.Normal;
         if (!this.homePosition) this.homePosition = this.slideNode.position.clone();
         const home = this.homePosition;
         this.node.active = true;
@@ -223,9 +292,11 @@ export class CustomerController extends Component {
             Ply_SoundManager.Ins?.playFxOneShot(FxType.DoorOpen, 0.6);
             this.fx?.speedLines(this.slideNode, this.slideDuration * 0.7);
         }
-        if (this.avatar && avatarFrame) {
-            this.avatar.spriteFrame = avatarFrame;
-            this.fitAvatar(avatarFrame);
+        if (this.look) this.applyLook(this.look, Expression.Normal);
+        else {
+            if (avatarFrame) this.setAvatarFrame(avatarFrame);
+            const face = this.getFaceNode(false);
+            if (face) face.active = false;
         }
         const ghostTint = new Color(this.ghostColor.r, this.ghostColor.g, this.ghostColor.b, this.ghostAlpha);
         for (const ghost of this.ghosts) {
@@ -308,6 +379,7 @@ export class CustomerController extends Component {
     leave(done: () => void): void {
         this.getComponent(CustomerChat)?.stop();
         Ply_SoundManager.Ins?.playFxOneShot(FxType.CustomerDone);
+        this.setExpression(Expression.Happy);
         this.showHeart();
         for (const tick of this.ticks) tick.active = false;
         this.popDrinks(() => {
@@ -329,11 +401,58 @@ export class CustomerController extends Component {
         });
     }
 
-    /** Mặt khách đỏ dần theo mức giận `t` (0 = bình thường, 1 = `angryColor`). */
+    /** Mức giận `t` (0 = bình thường, > 0 = đồng hồ đã vào vùng cảnh báo): đổi sang mặt giận / về mặt thường. */
     setAnger(t: number): void {
-        if (!this.avatar) return;
-        const k = Math.min(1, Math.max(0, t));
-        this.avatar.color = Color.lerp(new Color(), Color.WHITE, this.angryColor, k);
+        if (this.look?.angry.frame) this.setExpression(t > 0 ? Expression.Angry : Expression.Normal);
+    }
+
+    /** Đổi biểu cảm của nhân vật hiện tại (bỏ qua nếu đang đúng biểu cảm đó hoặc không có `look`). */
+    private setExpression(expression: Expression): void {
+        if (!this.look || expression === this.expression) return;
+        this.expression = expression;
+        this.applyLook(this.look, expression);
+    }
+
+    /**
+     * Hiện nhân vật `look` với biểu cảm `expression`: ảnh thân lên Avatar, ảnh mặt lên node Face.
+     * `dontSave` = node Face tạo trong editor để xem trước, không lưu vào scene.
+     */
+    applyLook(look: CustomerLook, expression: Expression, dontSave = false): void {
+        const avatar = this.avatar?.node;
+        if (!avatar || !look.body) return;
+        this.setAvatarFrame(look.body);
+        const setting = look.face(expression);
+        const face = this.getFaceNode(true, dontSave);
+        if (!face) return;
+        face.active = !!setting.frame;
+        layoutFace(avatar, look.body, face, setting);
+    }
+
+    /** Node mặt: con của Avatar, vẽ ngay trên ảnh thân, dưới tim / icon giận. */
+    getFaceNode(create: boolean, dontSave = false): Node | null {
+        const avatar = this.avatar?.node;
+        if (!avatar) return null;
+        if (this.faceNode?.isValid && this.faceNode.parent === avatar) return this.faceNode;
+        this.faceNode = avatar.getChildByName('Face');
+        if (!this.faceNode && create) {
+            const n = new Node('Face');
+            n.layer = avatar.layer;
+            if (dontSave) n.hideFlags |= CCObject.Flags.DontSave;
+            n.addComponent(UITransform);
+            n.addComponent(Sprite).sizeMode = Sprite.SizeMode.CUSTOM;
+            avatar.addChild(n);
+            n.setSiblingIndex(0);
+            this.faceNode = n;
+        }
+        return this.faceNode;
+    }
+
+    /** Đổi ảnh Avatar (bỏ qua nếu đang hiện đúng ảnh đó), giữ chiều cao chuẩn. */
+    private setAvatarFrame(frame: SpriteFrame): void {
+        if (!this.avatar || (this.shownFrame === frame && this.avatar.spriteFrame === frame)) return;
+        this.avatar.spriteFrame = frame;
+        this.shownFrame = frame;
+        this.fitAvatar(frame);
     }
 
     /**

@@ -5,6 +5,7 @@ import { DrinkItemManager } from '../MapTool/DrinkItemManager';
 import { DrinkTile } from '../MapTool/DrinkTile';
 import { LevelMapBuilder } from '../MapTool/LevelMapBuilder';
 import { CustomerController } from './CustomerController';
+import { CustomerLookLibrary } from './CustomerLookLibrary';
 import { WaitTray } from './WaitTray';
 import { FxType, Ply_SoundManager } from '../MyScript/ScriptTemplate/Ply_SoundManager';
 const { ccclass, property } = _decorator;
@@ -70,7 +71,10 @@ export class OrderManager extends Component {
     progressLabel: Label | null = null;
 
     // ── Khách & đơn ──
-    @property({ type: [SpriteFrame], tooltip: 'Avatar khách, dùng lần lượt', group: GROUP.order })
+    @property({ type: CustomerLookLibrary, tooltip: 'Thư viện nhân vật (thân + mặt thường / vui / giận), dùng lần lượt. Có thì dùng thay Avatar Frames', group: GROUP.order })
+    lookLibrary: CustomerLookLibrary | null = null;
+
+    @property({ type: [SpriteFrame], tooltip: 'Avatar khách 1 ảnh (giận thì tô đỏ), dùng lần lượt. Chỉ dùng khi không có Look Library', group: GROUP.order })
     avatarFrames: SpriteFrame[] = [];
 
     @property({ tooltip: 'Số cốc mỗi đơn', group: GROUP.order })
@@ -258,15 +262,17 @@ export class OrderManager extends Component {
      * Dùng cho khách mới và khách thay thế khách bỏ đi (đơn dở).
      */
     private showCustomer(slot: number, order: Order, talk?: boolean, instant = false): void {
-        // Xoay vòng avatar theo thứ tự khách được tạo.
-        const avatar = this.avatarFrames.length ? this.avatarFrames[this.spawned % this.avatarFrames.length] : null;
+        // Xoay vòng nhân vật theo thứ tự khách được tạo (ưu tiên bộ có biểu cảm).
+        const looks = (this.lookLibrary?.looks ?? []).filter(l => l?.body);
+        const look = looks.length ? looks[this.spawned % looks.length] : null;
+        const avatar = !look && this.avatarFrames.length ? this.avatarFrames[this.spawned % this.avatarFrames.length] : null;
         this.spawned++;
         if (talk === undefined) {
             talk = --this.chatCountdown <= 0;
             if (talk) this.resetChatCountdown();
         }
         const customer = this.customers[slot];
-        customer.show(avatar, this.mapBuilder?.drinkFrames[order.drinkId] ?? null, talk, instant, () => this.startTimer(slot, order));
+        customer.show(avatar, this.mapBuilder?.drinkFrames[order.drinkId] ?? null, talk, instant, () => this.startTimer(slot, order), look);
         if (order.reserved > 0) customer.restoreProgress(order.reserved, order.landed);
 
         // Tự chuyển cốc cùng loại đang chờ trong khay sang đơn.

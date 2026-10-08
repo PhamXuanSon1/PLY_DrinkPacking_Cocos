@@ -2,7 +2,7 @@ import { _decorator, Animation, BlockInputEvents, CCObject, Color, Component, Gr
 import { DrinkTile } from '../MapTool/DrinkTile';
 import { LevelMapBuilder } from '../MapTool/LevelMapBuilder';
 import { ui } from '../Manager/UI';
-import { CustomerController } from './CustomerController';
+import { CustomerController, CustomerLook, Expression } from './CustomerController';
 import { OrderManager } from './OrderManager';
 import { FxType, Ply_SoundManager } from '../MyScript/ScriptTemplate/Ply_SoundManager';
 const { ccclass, property } = _decorator;
@@ -100,7 +100,10 @@ export class TutorialManager extends Component {
     @property({ tooltip: 'Thời gian thuyền trưởng trượt vào / ra (giây)', group: GROUP.guide })
     guideSlideDuration = 0.35;
 
-    @property({ type: SpriteFrame, tooltip: 'Avatar vị khách đầu tiên', group: GROUP.play })
+    @property({ tooltip: 'Nhân vật khách tutorial: số thứ tự trong Look Library của OrderManager (mặt thường, vui khi đủ đơn). -1 = dùng Customer Avatar', group: GROUP.play })
+    customerLookIndex = -1;
+
+    @property({ type: SpriteFrame, tooltip: 'Avatar vị khách đầu tiên (1 ảnh), chỉ dùng khi Customer Look Index = -1', group: GROUP.play })
     customerAvatar: SpriteFrame | null = null;
 
     @property({ tooltip: 'Loại đồ uống của đơn mẫu (index trong drinkFrames)', group: GROUP.play })
@@ -194,7 +197,7 @@ export class TutorialManager extends Component {
         this.focusOn(this.customer, all);
         const frame = this.mapBuilder?.drinkFrames[this.drinkId] ?? null;
         // Khách tutorial đứng sẵn ở quầy, không trượt vào.
-        this.customer.show(this.customerAvatar, frame, false, true);
+        this.customer.show(this.customerAvatar, frame, false, true, undefined, this.customerLook());
         for (const g of this.customer.ghosts) g.node.active = false;
         this.scheduleOnce(() => (this.useGuide ? this.showGuide() : this.startPlay()), 0.3);
     }
@@ -474,7 +477,9 @@ export class TutorialManager extends Component {
         const customer = this.middle(all);
         if (!customer) return [];
         const frame = this.mapBuilder?.drinkFrames[this.drinkId] ?? null;
-        if (customer.avatar && this.customerAvatar) {
+        const look = this.customerLook();
+        if (look) customer.applyLook(look, Expression.Normal, true);
+        else if (customer.avatar && this.customerAvatar) {
             customer.avatar.spriteFrame = this.customerAvatar;
             customer.fitAvatar(this.customerAvatar);
         }
@@ -499,6 +504,13 @@ export class TutorialManager extends Component {
         if (!this.useGuide) hide.push(...[this.guide, this.blocker].filter((n): n is Node => !!n));
         else if (this.playHint) hide.push(this.playHint);
         return hide;
+    }
+
+    /** Nhân vật khách tutorial trong Look Library của OrderManager; null = dùng Customer Avatar. */
+    private customerLook(): CustomerLook | null {
+        if (this.customerLookIndex < 0) return null;
+        const look = this.orderManager?.lookLibrary?.looks[this.customerLookIndex];
+        return look?.body ? look : null;
     }
 
     /** Khách đứng gần giữa màn hình nhất. */
