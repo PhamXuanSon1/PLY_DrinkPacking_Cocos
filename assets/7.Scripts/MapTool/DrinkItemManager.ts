@@ -146,7 +146,12 @@ export class DrinkItemManager extends Component {
                 counts.set(t.drinkId, (counts.get(t.drinkId) ?? 0) + 1);
             }
             result.push(counts);
-            wave = [...this.coverers].filter(([t, by]) => !taken.has(t) && by.every(o => taken.has(o))).map(([t]) => t);
+            // Duyệt Map bằng forEach: bản build chuyển `[...map]` thành mảng chứa chính Map (không phải các cặp).
+            const next: DrinkTile[] = [];
+            this.coverers.forEach((by, t) => {
+                if (!taken.has(t) && by.every(o => taken.has(o))) next.push(t);
+            });
+            wave = next;
         }
         while (result.length <= depth) result.push(new Map());
         return result;

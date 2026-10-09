@@ -52,12 +52,19 @@ export class UI extends Component {
         PointerController.ins.onStore();
     }
 
+    /** Mở store và dừng game + tắt âm thanh (luật ra store, endcard). */
     openStore(...args: any) {
 
         gc?.redirectToStore();
 
-        console.log('openStore');  
-        Ply_SoundManager.Ins?.stopAll();      
+        console.log('openStore');
+        Ply_SoundManager.Ins?.stopAll();
+    }
+
+    /** Nút Download trong lúc chơi: chỉ mở store, quay lại game vẫn chơi tiếp, giữ nguyên âm thanh. */
+    openStoreKeepPlaying(...args: any) {
+        gc?.redirectToStore(false);
+        console.log('openStore (keep playing)');
     }
 
     first: boolean = true;

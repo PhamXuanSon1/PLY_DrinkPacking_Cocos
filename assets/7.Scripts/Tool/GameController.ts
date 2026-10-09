@@ -29,18 +29,21 @@ export class GameController extends Component {
  
 
 
-  redirectToStore() {    
+  /**
+   * Mở store. `stop` = true (mặc định): dừng game luôn, người chơi không chơi tiếp được (luật ra store,
+   * endcard). `stop` = false: chỉ mở store, quay lại game vẫn chơi tiếp (nút Download trong lúc chơi).
+   */
+  redirectToStore(stop: boolean = true) {
     if (PREVIEW &&  typeof window !== 'undefined') {
             const shouldOpenStore = window.confirm(this.storeDialogMessage);
             if (!shouldOpenStore) return;
         }
-    // Đã chuyển sang store -> dừng game, người chơi không chơi tiếp được nữa (gọi từ bất cứ đâu đều áp dụng).
-    this.stopGame();
+    if (stop) this.stopGame();
     try {
       PlayableSDK.download();
-      PlayableSDK.game_end();            
+      if (stop) PlayableSDK.game_end();
     } catch (error) {
-      
+
     }
   }
 

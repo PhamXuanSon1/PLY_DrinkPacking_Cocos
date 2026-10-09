@@ -70,7 +70,8 @@ export class ArcText extends Component {
         this.clear();
         label.enabled = false;
 
-        const text = [...label.string];
+        // Array.from thay cho [...str]: bản build chuyển [...str] thành [].concat(str) = cả chuỗi 1 phần tử.
+        const text = Array.from(label.string);
         const widths: number[] = [];
         for (const ch of text) {
             const n = new Node('char');
