@@ -1,6 +1,7 @@
 import { _decorator, Color, Component, instantiate, Node, Prefab, Tween, tween, Vec2 } from 'cc';
 import { CustomerController } from './CustomerController';
 import { ClockTimer } from './Effects/ClockTimer';
+import { FxType, Ply_SoundManager } from '../MyScript/ScriptTemplate/Ply_SoundManager';
 const { ccclass, property } = _decorator;
 
 /**
@@ -11,8 +12,11 @@ const { ccclass, property } = _decorator;
  */
 @ccclass('CustomerTimer')
 export class CustomerTimer extends Component {
-    @property({ tooltip: 'Còn bao nhiêu phần thời gian (0–1) thì bắt đầu rung và mặt khách đỏ dần' })
+    @property({ tooltip: 'Còn bao nhiêu phần thời gian (0–1) thì bắt đầu rung và khách đổi sang mặt giận' })
     warnRatio = 0.3;
+
+    @property({ tooltip: 'Còn bấy nhiêu giây thì phát sound 2 giây cuối (Ply_SoundManager: Clock Last 2s)' })
+    lastSeconds = 2;
 
     @property({ type: Prefab, tooltip: 'Prefab đồng hồ (5.Prefabs/ClockTimer), có component ClockTimer' })
     clockPrefab: Prefab | null = null;
@@ -45,6 +49,10 @@ export class CustomerTimer extends Component {
     private onTimeout: (() => void) | null = null;
     private customer: CustomerController | null = null;
     private readonly color = new Color();
+    /** Đồng hồ này đang trong `lastSeconds` giây cuối (đã phát sound). */
+    private ringing = false;
+    /** Số đồng hồ đang trong giây cuối: sound dùng chung 1 nguồn, chỉ tắt khi không còn đồng hồ nào. */
+    private static ringingCount = 0;
 
     onLoad(): void {
         this.customer = this.getComponent(CustomerController);
@@ -66,6 +74,7 @@ export class CustomerTimer extends Component {
      * `paused` = đứng yên tới khi `resume()`; `hidden` = ẩn đồng hồ tới khi `resume()` (chờ click đầu tiên).
      */
     begin(onTimeout: () => void, duration: number, paused = false, hidden = false): void {
+        this.endRing(true);
         this.duration = Math.max(0.1, duration);
         this.left = this.duration;
         this.onTimeout = onTimeout;
@@ -79,6 +88,8 @@ export class CustomerTimer extends Component {
 
     /** Dừng đếm (khách đã nhận đủ cốc / màn kết thúc). `hide` = ẩn luôn đồng hồ. */
     stop(hide = true): void {
+        // Dừng trước khi hết giờ (khách đã nhận đủ cốc / màn kết thúc): tắt sound giây cuối.
+        this.endRing(true);
         this.running = false;
         this.onTimeout = null;
         this.setShake(false);
@@ -93,6 +104,7 @@ export class CustomerTimer extends Component {
     pause(): void {
         this.paused = true;
         this.setShake(false);
+        this.endRing(true);
     }
 
     /** Chạy tiếp (và hiện đồng hồ nếu đang ẩn) — chỉ khi khách vẫn đang chờ. */
@@ -109,10 +121,35 @@ export class CustomerTimer extends Component {
         const warn = this.warnRatio > 0 && ratio <= this.warnRatio;
         this.setShake(warn);
         this.customer?.setAnger(warn ? 1 - ratio / this.warnRatio : 0);
-        if (this.left > 0) return;
+        if (this.left > 0) {
+            if (this.left <= this.lastSeconds) this.startRing();
+            return;
+        }
+        // Hết giờ: để sound giây cuối phát nốt (nó cũng vừa hết), không cắt ngang.
+        this.endRing(false);
         const cb = this.onTimeout;
         this.stop();
         cb?.();
+    }
+
+    onDisable(): void {
+        this.endRing(true);
+    }
+
+    /** Vào `lastSeconds` giây cuối: phát sound một lần cho lượt đếm này. */
+    private startRing(): void {
+        if (this.ringing) return;
+        this.ringing = true;
+        CustomerTimer.ringingCount++;
+        Ply_SoundManager.Ins?.playFx(FxType.ClockLast2s);
+    }
+
+    /** Ra khỏi giây cuối; `silence` = tắt sound nếu không còn đồng hồ nào khác đang ở giây cuối. */
+    private endRing(silence: boolean): void {
+        if (!this.ringing) return;
+        this.ringing = false;
+        CustomerTimer.ringingCount = Math.max(0, CustomerTimer.ringingCount - 1);
+        if (silence && CustomerTimer.ringingCount === 0) Ply_SoundManager.Ins?.stopFx(FxType.ClockLast2s);
     }
 
     private show(ratio: number): void {

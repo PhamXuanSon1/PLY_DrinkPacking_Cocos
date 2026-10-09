@@ -15,10 +15,12 @@ export enum FxType {
     DoorOpen = 5,
     LevelWin = 6,
     LevelLose = 7,
+    ClockLast2s = 8,
+    CustomerOut = 9,
 }
 Enum(FxType);
 
-const FX_TYPE_COUNT = 8;
+const FX_TYPE_COUNT = 10;
 
 /**
  * Cau hinh du lieu am thanh.
@@ -64,6 +66,12 @@ class FxAudio {
 
     @property({ type: SoundData, tooltip: 'SFX_Level_Lose - Thua level' })
     levelLose: SoundData = new SoundData();
+
+    @property({ type: SoundData, tooltip: 'Dong ho khach con 2 giay cuoi (tich tac / bao dong)' })
+    clockLast2s: SoundData = new SoundData();
+
+    @property({ type: SoundData, tooltip: 'Khach het gio, gian bo di' })
+    customerOut: SoundData = new SoundData();
 }
 
 /** Ten truong trong FxAudio theo tung FxType. */
@@ -76,6 +84,8 @@ const FX_FIELDS: Record<FxType, keyof FxAudio> = {
     [FxType.DoorOpen]: 'doorOpen',
     [FxType.LevelWin]: 'levelWin',
     [FxType.LevelLose]: 'levelLose',
+    [FxType.ClockLast2s]: 'clockLast2s',
+    [FxType.CustomerOut]: 'customerOut',
 };
 
 /**

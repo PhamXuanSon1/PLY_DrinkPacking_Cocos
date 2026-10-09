@@ -464,6 +464,7 @@ export class CustomerController extends Component {
         this.getComponent(CustomerChat)?.stop();
         this.setAnger(1);
         this.showAngryIcon();
+        Ply_SoundManager.Ins?.playFxOneShot(FxType.CustomerOut);
         Tween.stopAllByTarget(this.slideState);
         const node = this.slideNode;
         const home = this.homePosition ?? node.position;
@@ -481,7 +482,6 @@ export class CustomerController extends Component {
             })
             .call(() => {
                 this.sendToBack();
-                Ply_SoundManager.Ins?.playFxOneShot(FxType.DoorOpen, 0.6);
                 this.slide(baseX, home.x - this.slideDistance, this.exitDuration * 1.5, 'quadIn', () => {
                     this.hideAngryIcon();
                     this.setAnger(0);
