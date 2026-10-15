@@ -72832,6 +72832,7 @@
     "_enabled": true,
     "__prefab": null,
     "autoStart": true,
+    "orderMode": 0,
     "maxWalkouts": 3,
     "itemManager": {
       "__id__": 2087
@@ -73862,7 +73863,16 @@
       "__uuid__": "9ed1f7a9-f278-4ca6-bd34-84a5e7c23de0@f9941",
       "__expectedType__": "cc.SpriteFrame"
     },
-    "drinkId": 0,
+    "orderDrinks": [
+      0,
+      6,
+      9
+    ],
+    "tileDrinks": [
+      9,
+      0,
+      6
+    ],
     "tileSpacing": 410,
     "tileScale": 1.5,
     "focusRoot": {

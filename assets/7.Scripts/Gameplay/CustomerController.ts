@@ -260,11 +260,12 @@ export class CustomerController extends Component {
 
     /**
      * Hiện khách mới: ảnh mờ của đơn hiện ngay trên đĩa, Avatar trượt vào từ bên trái.
+     * `drinkFrames[i]`: sprite đồ uống khách cần ở ô thứ i (đơn trộn loại, mỗi ô một ảnh mờ riêng).
      * `talk` = true: khách nói một câu (CustomerChat) ngay khi trượt vào xong.
      * `arrived`: gọi khi khách đã đứng vào chỗ (trượt vào xong; `instant` thì gọi ngay).
      * `look`: nhân vật có biểu cảm (thân + mặt); có thì `avatarFrame` bị bỏ qua.
      */
-    show(avatarFrame: SpriteFrame | null, drinkFrame: SpriteFrame | null, talk = false, instant = false, arrived?: () => void, look: CustomerLook | null = null): void {
+    show(avatarFrame: SpriteFrame | null, drinkFrames: readonly (SpriteFrame | null)[], talk = false, instant = false, arrived?: () => void, look: CustomerLook | null = null): void {
         this.look = look?.body ? look : null;
         this.expression = Expression.Normal;
         if (!this.homePosition) this.homePosition = this.slideNode.position.clone();
@@ -299,14 +300,15 @@ export class CustomerController extends Component {
             if (face) face.active = false;
         }
         const ghostTint = new Color(this.ghostColor.r, this.ghostColor.g, this.ghostColor.b, this.ghostAlpha);
-        for (const ghost of this.ghosts) {
+        this.ghosts.forEach((ghost, i) => {
+            const drinkFrame = drinkFrames[i] ?? null;
             ghost.node.active = true;
             ghost.spriteFrame = drinkFrame;
             ghost.color = ghostTint;
             const ut = ghost.node.getComponent(UITransform);
             const rect = drinkFrame?.rect;
             if (ut && rect && rect.height) ut.width = ut.height * rect.width / rect.height;
-        }
+        });
         for (const tick of this.ticks) tick.active = false;
         if (instant) arrived?.();
     }
@@ -492,12 +494,13 @@ export class CustomerController extends Component {
     }
 
     /**
-     * Sau `show()` cho khách thay thế nhận tiếp đơn dở: các cốc đã giao / đang bay tới (`reserved`)
-     * không hiện ảnh mờ, cốc đã đáp (`landed`) có dấu tick.
+     * Sau `show()` cho khách thay thế nhận tiếp đơn dở, theo trạng thái từng ô (ô giữa có thể nhận
+     * trước ô trái): ô đã giao / đang có cốc bay tới (`reserved[i]`) không hiện ảnh mờ, ô đã đáp
+     * (`landed[i]`) có dấu tick. Cốc đang bay khi đáp sẽ tự bật tick đúng ô (xem `receive`).
      */
-    restoreProgress(reserved: number, landed: number): void {
-        this.ghosts.forEach((g, i) => (g.node.active = i >= reserved));
-        this.ticks.forEach((t, i) => (t.active = i < landed));
+    restoreProgress(reserved: readonly boolean[], landed: readonly boolean[]): void {
+        this.ghosts.forEach((g, i) => (g.node.active = !reserved[i]));
+        this.ticks.forEach((t, i) => (t.active = !!landed[i]));
     }
 
     private showAngryIcon(): void {

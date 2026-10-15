@@ -1,9 +1,9 @@
-import { _decorator, Animation, BlockInputEvents, CCObject, Color, Component, Graphics, Label, Node, RichText, SpriteFrame, Tween, tween, UIOpacity, UITransform, Vec3 } from 'cc';
+import { _decorator, Animation, BlockInputEvents, CCInteger, CCObject, Color, Component, Graphics, Label, Node, RichText, SpriteFrame, Tween, tween, UIOpacity, UITransform, Vec3 } from 'cc';
 import { DrinkTile } from '../MapTool/DrinkTile';
 import { LevelMapBuilder } from '../MapTool/LevelMapBuilder';
 import { ui } from '../Manager/UI';
 import { CustomerController, CustomerLook, Expression } from './CustomerController';
-import { OrderManager } from './OrderManager';
+import { OrderManager, OrderMode } from './OrderManager';
 import { FxType, Ply_SoundManager } from '../MyScript/ScriptTemplate/Ply_SoundManager';
 const { ccclass, property } = _decorator;
 
@@ -20,8 +20,8 @@ const GROUP = {
  * 1. Bàn trống, một vị khách đứng sẵn ở quầy (khách đứng giữa).
  * 2. Thuyền trưởng trượt vào ở góc dưới, bong bóng thoại hiện chữ dần:
  *    câu 1 → "Tap to continue" → câu 2.
- * 3. Đơn của khách hiện trên đĩa, bàn chỉ có 3 cốc đúng loại; bàn tay chỉ vào từng cốc,
- *    người chơi bấm để giao (dùng chung animation giao cốc / đủ đơn của CustomerController).
+ * 3. Đơn trộn loại của khách hiện trên đĩa (`orderDrinks`), bàn có 3 cốc mẫu bày khác thứ tự
+ *    (`tileDrinks`); bàn tay chỉ vào từng cốc, người chơi bấm cốc nào thì cốc bay vào đúng ô cần loại đó (dùng chung animation giao cốc / đủ đơn của CustomerController).
  * 4. Đủ đơn: câu 3 → "Tap to continue" → thuyền trưởng rời đi, bàn thật hiện ra và
  *    OrderManager.startLevel() bắt đầu màn chơi.
  * Tắt `useGuide`: bỏ bước 2 và phần thoại ở bước 4 — khách đứng sẵn → đơn + 3 cốc mẫu →
@@ -106,8 +106,11 @@ export class TutorialManager extends Component {
     @property({ type: SpriteFrame, tooltip: 'Avatar vị khách đầu tiên (1 ảnh), chỉ dùng khi Customer Look Index = -1', group: GROUP.play })
     customerAvatar: SpriteFrame | null = null;
 
-    @property({ tooltip: 'Loại đồ uống của đơn mẫu (index trong drinkFrames)', group: GROUP.play })
-    drinkId = 0;
+    @property({ type: [CCInteger], tooltip: 'Đơn mẫu khác loại: đồ uống khách cần ở từng ô trên đĩa, trái sang phải (index trong drinkFrames). OrderManager ở mode Same thì đơn mẫu là 3 cốc loại đầu tiên', group: GROUP.play })
+    orderDrinks: number[] = [0, 6, 9];
+
+    @property({ type: [CCInteger], tooltip: 'Cốc mẫu bày trên bàn, trái sang phải; phải cùng bộ loại với Order Drinks. Bày khác thứ tự ô để cho thấy chọn cốc theo thứ tự nào cũng được', group: GROUP.play })
+    tileDrinks: number[] = [9, 0, 6];
 
     @property({ tooltip: 'Khoảng cách giữa 3 cốc mẫu (px)', group: GROUP.play })
     tileSpacing = 410;
@@ -140,6 +143,8 @@ export class TutorialManager extends Component {
     private hiddenSlots: Node[] = [];
     private tiles: DrinkTile[] = [];
     private used = new Set<DrinkTile>();
+    /** Ô trên đĩa đã có cốc mẫu bay tới (giữ chỗ ngay khi bấm). */
+    private filledSlots = new Set<number>();
     private landed = 0;
     private guideHome: Vec3 | null = null;
     /** Câu đang hiện dần; `done` gọi đúng một lần khi đã hiện hết chữ. */
@@ -195,9 +200,8 @@ export class TutorialManager extends Component {
         this.customer = this.middle(all);
         if (!this.customer) return this.finish();
         this.focusOn(this.customer, all);
-        const frame = this.mapBuilder?.drinkFrames[this.drinkId] ?? null;
         // Khách tutorial đứng sẵn ở quầy, không trượt vào.
-        this.customer.show(this.customerAvatar, frame, false, true, undefined, this.customerLook());
+        this.customer.show(this.customerAvatar, this.orderFrames(), false, true, undefined, this.customerLook());
         for (const g of this.customer.ghosts) g.node.active = false;
         this.scheduleOnce(() => (this.useGuide ? this.showGuide() : this.startPlay()), 0.3);
     }
@@ -254,22 +258,58 @@ export class TutorialManager extends Component {
         root.removeAllChildren();
         this.tiles = [];
         this.used.clear();
+        this.filledSlots.clear();
         this.landed = 0;
-        for (let i = 0; i < 3; i++) {
-            const node = builder.createTile(root, this.drinkId, `TutTile_${i}`);
+        this.tileOrder().forEach((drinkId, i) => {
+            const node = builder.createTile(root, drinkId, `TutTile_${i}`);
             const tile = node.getComponent(DrinkTile) ?? node.addComponent(DrinkTile);
-            tile.drinkId = this.drinkId;
+            tile.drinkId = drinkId;
             node.setPosition((i - 1) * this.tileSpacing, 0, 0);
             node.setScale(0, 0, 1);
             const s = this.tileScale;
             tween(node).delay(i * 0.1).to(0.3, { scale: new Vec3(s, s, 1) }, { easing: 'backOut' }).start();
             node.on(Node.EventType.TOUCH_END, () => this.onTileTap(tile), this);
             this.tiles.push(tile);
-        }
+        });
+    }
+
+    /** OrderManager ở mode Same: đơn mẫu là 3 cốc cùng loại `orderDrinks[0]`. */
+    private get sameMode(): boolean {
+        return this.orderManager?.orderMode === OrderMode.Same;
+    }
+
+    /** Đơn mẫu theo mode của OrderManager: Different = `orderDrinks`, Same = 3 cốc `orderDrinks[0]`. */
+    private orderList(): number[] {
+        if (!this.sameMode) return this.orderDrinks.slice();
+        const id = this.orderDrinks[0] ?? 0;
+        return this.orderDrinks.map(() => id);
+    }
+
+    /** Sprite ảnh mờ từng ô của đơn mẫu. */
+    private orderFrames(): (SpriteFrame | null)[] {
+        return this.orderList().map(id => this.mapBuilder?.drinkFrames[id] ?? null);
+    }
+
+    /** Cốc mẫu trên bàn: `tileDrinks` nếu cùng bộ loại với đơn mẫu, không thì bày đúng thứ tự đơn. */
+    private tileOrder(): number[] {
+        const order = this.orderList();
+        if (this.sameMode) return order;
+        const key = (a: number[]): string => a.slice().sort((x, y) => x - y).join(',');
+        if (this.tileDrinks.length === order.length && key(this.tileDrinks) === key(order)) return this.tileDrinks.slice();
+        console.warn('[TutorialManager] Tile Drinks khác bộ loại với Order Drinks, bày cốc theo thứ tự đơn');
+        return order;
+    }
+
+    /** Ô đầu tiên chưa có cốc cần đúng loại `drinkId`; -1 nếu không còn ô nào. */
+    private slotFor(drinkId: number): number {
+        return this.orderList().findIndex((id, i) => id === drinkId && !this.filledSlots.has(i));
     }
 
     private onTileTap(tile: DrinkTile): void {
         if (this.used.has(tile) || !this.customer) return;
+        const index = this.slotFor(tile.drinkId);
+        if (index < 0) return;
+        this.filledSlots.add(index);
         // "Tap to play" tắt ngay ở lần chạm cốc mẫu đầu tiên.
         this.hidePlayHint();
         this.used.add(tile);
@@ -280,7 +320,7 @@ export class TutorialManager extends Component {
         // bấm lúc cốc còn đang bật lên thì đặt luôn về đủ cỡ.
         tile.node.setScale(this.tileScale, this.tileScale, 1);
         this.hideHand();
-        const index = this.used.size - 1;
+        // Cốc bay vào đúng ô cần loại của nó trên đĩa, không theo thứ tự bấm.
         this.customer.receive(tile.node, index, () => {
             if (++this.landed === this.tiles.length) this.complete();
         }, false);
@@ -476,25 +516,25 @@ export class TutorialManager extends Component {
         const all = this.node.scene.getComponentsInChildren(CustomerController);
         const customer = this.middle(all);
         if (!customer) return [];
-        const frame = this.mapBuilder?.drinkFrames[this.drinkId] ?? null;
+        const frames = this.orderFrames();
         const look = this.customerLook();
         if (look) customer.applyLook(look, Expression.Normal, true);
         else if (customer.avatar && this.customerAvatar) {
             customer.avatar.spriteFrame = this.customerAvatar;
             customer.fitAvatar(this.customerAvatar);
         }
-        for (const g of customer.ghosts) {
+        customer.ghosts.forEach((g, i) => {
             g.node.active = true;
-            g.spriteFrame = frame;
-        }
+            g.spriteFrame = frames[i] ?? null;
+        });
         if (root && this.mapBuilder) {
             const s = this.tileScale;
-            for (let i = 0; i < 3; i++) {
-                const node = this.mapBuilder.createTile(root, this.drinkId, `TutTile_${i}`);
+            this.tileOrder().forEach((drinkId, i) => {
+                const node = this.mapBuilder!.createTile(root, drinkId, `TutTile_${i}`);
                 node.hideFlags |= CCObject.Flags.DontSave;
                 node.setPosition((i - 1) * this.tileSpacing, 0, 0);
                 node.setScale(s, s, 1);
-            }
+            });
         }
         const tray = customer.node.parent;
         const hide = all.map(c => c.node.parent).filter((t): t is Node => !!t && t !== tray);
