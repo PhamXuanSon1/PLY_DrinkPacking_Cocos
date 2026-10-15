@@ -89,7 +89,7 @@ export class OrderManager extends Component {
     orderMode = OrderMode.Different;
 
     // Giữ tên biến `maxWalkouts` để scene không mất giá trị đã lưu.
-    @property({ displayName: 'Số lần sai ra store', tooltip: 'Mỗi khách hết giờ bỏ đi = 1 lần sai. Sai đủ bấy nhiêu lần thì thua và mở store. 0 = tắt', group: GROUP.level })
+    @property({ displayName: 'Số lần sai ra store', tooltip: 'Mỗi khách hết giờ bỏ đi = 1 lần sai. Sai đủ bấy nhiêu lần thì thua, hiện endcard; bấm endcard thì ra store. 0 = tắt', group: GROUP.level })
     maxWalkouts = 3;
 
     // ── Tham chiếu: các thành phần gameplay được nối trong Inspector ──
@@ -388,7 +388,7 @@ export class OrderManager extends Component {
     }
 
     /**
-     * Hết giờ: khách bỏ đi (1 lần sai); sai đủ `maxWalkouts` lần thì thua và mở store,
+     * Hết giờ: khách bỏ đi (1 lần sai); sai đủ `maxWalkouts` lần thì thua (hiện endcard),
      * nếu không thì khách khác vào thay.
      */
     private onTimeout(slot: number): void {
@@ -396,10 +396,8 @@ export class OrderManager extends Component {
         if (this.finished || !order || order.done || order.leaving || filledCount(order) >= order.slots.length) return;
         order.leaving = true;
         this.walkouts++;
-        if (this.maxWalkouts > 0 && this.walkouts >= this.maxWalkouts) {
-            this.lose('walkouts');
-            gc?.redirectToStore();
-        }
+        // Sai đủ lượt: thua, hiện endcard; người chơi bấm endcard mới ra store (WinPopup).
+        if (this.maxWalkouts > 0 && this.walkouts >= this.maxWalkouts) this.lose('walkouts');
         const round = this.round;
         this.customers[slot].angryLeave(() => {
             if (round === this.round && this.isValid) this.replaceCustomer(slot, order);
@@ -457,10 +455,10 @@ export class OrderManager extends Component {
      * cốc một đơn thì mới cho lặp loại. Trả về null khi tổng cốc chưa dành không đủ một đơn.
      *
      * Cốc đang nằm trong khay được đưa vào đơn trước (giải phóng khay, mỗi loại 1 cốc).
-     * Các ô còn lại rút có trọng số nghiêng về loại lấy được sớm: "cung gần" = cốc trong khay + cốc
-     * lộ / sắp lộ trên bàn (tối đa `lookahead` đợt bốc) − các ô đang chờ của khách khác cùng loại.
-     * Loại chỉ có cốc nằm sâu vẫn có thể được gọi nhưng với xác suất rất thấp.
-     * Đây là thiên vị, không phải bảo đảm có đường thắng.
+     * Các ô còn lại chỉ rút trong nhóm loại lấy được sớm nhất: trước hết loại "lấy được ngay" (cốc trong
+     * khay + cốc đang lộ, trừ ô đang chờ của khách khác); không đủ mới tới loại lộ ra sau 1, 2...
+     * đợt bốc (tối đa `lookahead`). Trong nhóm đó rút ngẫu nhiên có trọng số.
+     * Giúp dễ gom đủ đơn nhưng không bảo đảm luôn có đường thắng.
      */
     private pickDifferentOrder(): number[] | null {
         const need = this.cupsPerOrder;
@@ -473,19 +471,28 @@ export class OrderManager extends Component {
         });
         if (total < need) return null;
 
-        const near = new Map<number, number>();
+        // Ô đang chờ của các khách khác: cốc gần nhất của loại đó đã được dành cho họ.
+        const demand = new Map<number, number>();
+        for (const o of this.active) {
+            if (!o || o.done) continue;
+            for (const s of o.slots) if (s.state === SlotState.Empty) demand.set(s.drinkId, (demand.get(s.drinkId) ?? 0) + 1);
+        }
+        // avail[d]: số cốc mỗi loại lấy được sau tối đa d đợt bốc (khay + cốc lộ ở đợt 0..d) − phần đã dành.
+        // Đợt 0 = cốc trong khay + cốc đang lộ, tức "lấy được ngay".
         const inTray = new Map<number, number>();
-        const reach = this.itemManager?.reachableByDepth(this.lookahead) ?? [];
-        for (const counts of reach) counts.forEach((n, id) => near.set(id, (near.get(id) ?? 0) + n));
+        const run = new Map<number, number>();
         left.forEach((_, id) => {
             const n = this.tray?.count(id) ?? 0;
             inTray.set(id, n);
-            near.set(id, (near.get(id) ?? 0) + n);
+            run.set(id, n);
         });
-        // Cốc gần đã được dành cho ô đang chờ của khách khác thì không tính là cung gần nữa.
-        for (const o of this.active) {
-            if (!o || o.done) continue;
-            for (const s of o.slots) if (s.state === SlotState.Empty) near.set(s.drinkId, (near.get(s.drinkId) ?? 0) - 1);
+        const reach = this.itemManager?.reachableByDepth(this.lookahead) ?? [];
+        const avail: Map<number, number>[] = [];
+        for (let d = 0; d < Math.max(1, reach.length); d++) {
+            reach[d]?.forEach((n, id) => run.set(id, (run.get(id) ?? 0) + n));
+            const m = new Map<number, number>();
+            run.forEach((n, id) => m.set(id, n - (demand.get(id) ?? 0)));
+            avail.push(m);
         }
 
         const drinks: number[] = [];
@@ -494,7 +501,7 @@ export class OrderManager extends Component {
             drinks.push(id);
             picked.set(id, (picked.get(id) ?? 0) + 1);
             left.set(id, left.get(id)! - 1);
-            near.set(id, (near.get(id) ?? 0) - 1);
+            for (const m of avail) m.set(id, (m.get(id) ?? 0) - 1);
             inTray.set(id, Math.max(0, (inTray.get(id) ?? 0) - 1));
         };
         // Cốc trong khay chưa khách nào cần (luôn nằm trong `unassigned`) được đưa vào đơn trước, loại
@@ -510,15 +517,25 @@ export class OrderManager extends Component {
             left.forEach((n, id) => {
                 if (n > 0 && !picked.has(id)) fresh = true;
             });
+            const candidates: number[] = [];
+            left.forEach((n, id) => {
+                if (n > 0 && !(fresh && picked.has(id))) candidates.push(id);
+            });
+            // Chỉ gọi loại lấy được sớm nhất có thể: ưu tiên loại lấy được ngay (đợt 0), không có mới
+            // tới loại lộ ra sau 1, 2... đợt bốc; cốc nằm sâu hơn `lookahead` chỉ gọi khi không còn cách nào.
+            let tier = -1;
+            for (let d = 0; d < avail.length && tier < 0; d++) {
+                if (candidates.some(id => (avail[d].get(id) ?? 0) > 0)) tier = d;
+            }
             const weights: { id: number; w: number }[] = [];
             let sum = 0;
-            left.forEach((n, id) => {
-                if (n <= 0 || (fresh && picked.has(id))) return;
-                const free = near.get(id) ?? 0;
-                const w = (free > 0 ? 1 + 3 * Math.min(free, need) + 2 * (inTray.get(id) ?? 0) : 0.05) * Math.sqrt(n);
+            for (const id of candidates) {
+                const free = tier >= 0 ? avail[tier].get(id) ?? 0 : 1;
+                if (free <= 0) continue;
+                const w = (1 + Math.min(free, need) + 2 * (inTray.get(id) ?? 0)) * Math.sqrt(left.get(id)!);
                 weights.push({ id, w });
                 sum += w;
-            });
+            }
             let r = Math.random() * sum;
             let id = weights[weights.length - 1].id;
             for (const e of weights) {

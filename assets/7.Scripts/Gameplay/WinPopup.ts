@@ -177,7 +177,8 @@ export class WinPopup extends Component {
     }
 
     private onButton(): void {
-        if (this.buttonAction !== PopupButton.Replay) return this.onDownload();
+        // Đã ra store thì không cho chơi lại: nút nào cũng mở store.
+        if (this.buttonAction !== PopupButton.Replay || gc?.stopped) return this.onDownload();
         // Chơi lại: tải lại scene, lần này vào thẳng màn chơi.
         TutorialManager.skipNext = true;
         Ply_SoundManager.Ins?.stopAll();

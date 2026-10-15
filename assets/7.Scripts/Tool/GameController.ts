@@ -1,4 +1,4 @@
-import { _decorator, assetManager, Component, Font, Node } from "cc";
+import { _decorator, assetManager, Component, Font, game, Node } from "cc";
 import { PREVIEW } from "cc/env";
 const { ccclass, property } = _decorator;
 
@@ -34,8 +34,13 @@ export class GameController extends Component {
    * endcard). `stop` = false: chỉ mở store, quay lại game vẫn chơi tiếp (nút Download trong lúc chơi).
    */
   redirectToStore(stop: boolean = true) {
+    // Một lần chạm có thể gọi 2 lần (chạm canvas sau khi đã ra store + nút / Dim của endcard): chỉ mở 1 lần.
+    // Kiểm tra trước hộp confirm của preview, và tính lại mốc sau confirm vì confirm chặn luồng tới khi bấm.
+    if (Date.now() - this.lastRedirect < 500) return;
+    this.lastRedirect = Date.now();
     if (PREVIEW &&  typeof window !== 'undefined') {
             const shouldOpenStore = window.confirm(this.storeDialogMessage);
+            this.lastRedirect = Date.now();
             if (!shouldOpenStore) return;
         }
     if (stop) this.stopGame();
@@ -53,6 +58,19 @@ export class GameController extends Component {
     if (this.stopped) return;
     this.stopped = true;
     this.node.emit(GameController.EVENT_STOP);
+    // Đã ra store: người chơi quay lại game thì chạm bất kỳ đâu cũng mở lại store.
+    game.canvas?.addEventListener('pointerup', this.onClickAfterStop);
+  }
+
+  /** Lần mở store gần nhất (ms), để một lần chạm không mở store 2 lần (canvas + nút endcard). */
+  private lastRedirect = 0;
+
+  private onClickAfterStop = (): void => {
+    this.redirectToStore();
+  };
+
+  onDestroy() {
+    game.canvas?.removeEventListener('pointerup', this.onClickAfterStop);
   }
 }
 
