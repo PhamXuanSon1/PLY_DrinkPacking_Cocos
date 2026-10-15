@@ -106,7 +106,8 @@ export class WinPopup extends Component {
     }
 
     onDestroy(): void {
-        this.orderManager?.node.off(this.eventName, this.onWin, this);
+        // Lúc đổi scene (Replay) OrderManager có thể đã bị hủy trước nên `node` là null.
+        this.orderManager?.node?.off(this.eventName, this.onWin, this);
     }
 
     private get eventName(): string {

@@ -22,6 +22,8 @@ export function jumpTo(node: Node, parent: Node, target: Node, offset: Vec3 | nu
         .to(duration, { k: 1 }, {
             easing: 'linear',
             onUpdate: () => {
+                // Tween chạy trên `state` nên không tự dừng khi node bị hủy (đổi scene / chơi lại lúc cốc đang bay).
+                if (!node.isValid || !parent.isValid || !target.isValid) return;
                 const k = state.k;
                 if (matchScale) Vec3.lerp(scale, startScale, Vec3.multiplyScalar(endScale, parent.worldScale, sizeRatio), k);
                 else scale.set(startScale);
@@ -41,6 +43,7 @@ export function jumpTo(node: Node, parent: Node, target: Node, offset: Vec3 | nu
             },
         })
         .call(() => {
+            if (!node.isValid || !parent.isValid) return;
             node.setParent(parent, true);
             done?.();
         })

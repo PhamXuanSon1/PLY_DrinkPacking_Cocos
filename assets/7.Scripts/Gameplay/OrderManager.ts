@@ -150,6 +150,8 @@ export class OrderManager extends Component {
     private walkouts = 0;
     /** Đồng hồ khách chỉ hiện và chạy từ lần click cốc đầu tiên trong màn chơi; trước đó ẩn. */
     private clockStarted = false;
+    /** Tăng mỗi lần startLevel; callback animation của lượt cũ so khớp số này để không sửa trạng thái lượt mới. */
+    private round = 0;
 
     start(): void {
         // Đã ra store (GameController.stopGame): khóa cốc + dừng đồng hồ; quay lại game thì click
@@ -194,6 +196,7 @@ export class OrderManager extends Component {
         const leftover = total - orders * this.cupsPerOrder;
         if (leftover) console.warn(`[OrderManager] ${total} cups, ${leftover} cup(s) will not be ordered (mode ${OrderMode[this.orderMode]})`);
         this.totalOrders = orders;
+        this.round++;
         this.served = 0;
         this.spawned = 0;
         this.walkouts = 0;
@@ -258,11 +261,14 @@ export class OrderManager extends Component {
     /** Giao cốc vào ô `index` của đơn: giữ chỗ ngay, cốc nhảy lên đúng ô; đủ cả đơn đáp xong thì khách rời đi. */
     private deliver(order: Order, index: number, tile: DrinkTile): void {
         const slot = this.active.indexOf(order);
+        const round = this.round;
         // Giữ chỗ ngay khi bắt đầu bay để cốc bấm tiếp (kể cả bấm nhanh) không vào trùng ô.
         order.slots[index].state = SlotState.Flying;
         // Đã giữ chỗ đủ cả đơn (kể cả cốc đang bay): khách không còn chờ nữa.
         if (filledCount(order) === order.slots.length) this.timerOf(slot)?.stop();
         this.customers[slot].receive(tile.node, index, () => {
+            // Callback của lượt chơi cũ (đã chơi lại) hoặc sau khi màn đã kết thúc: không sửa trạng thái.
+            if (round !== this.round || this.finished || !this.isValid) return;
             // Chỉ tính là đã tới nơi sau khi animation đáp xuống hoàn tất.
             order.slots[index].state = SlotState.Landed;
             // Khách đang bỏ đi: khách thay thế sẽ kiểm tra đủ đơn khi vào (replaceCustomer).
@@ -277,7 +283,9 @@ export class OrderManager extends Component {
         order.done = true;
         this.served++;
         this.updateLabel();
+        const round = this.round;
         this.customers[slot].leave(() => {
+            if (round !== this.round || !this.isValid) return;
             // Dùng lại vị trí khách vừa rời; kiểm tra kết quả sau khi thử gọi khách tiếp theo.
             this.active[slot] = null;
             this.spawnCustomer(slot);
@@ -392,7 +400,10 @@ export class OrderManager extends Component {
             this.lose('walkouts');
             gc?.redirectToStore();
         }
-        this.customers[slot].angryLeave(() => this.replaceCustomer(slot, order));
+        const round = this.round;
+        this.customers[slot].angryLeave(() => {
+            if (round === this.round && this.isValid) this.replaceCustomer(slot, order);
+        });
     }
 
     /**
@@ -401,7 +412,7 @@ export class OrderManager extends Component {
      * khách mới nhận tiếp đúng đơn đó, cốc trên đĩa giữ nguyên nên không mất cốc nào.
      */
     private replaceCustomer(slot: number, order: Order): void {
-        if (this.finished) return;
+        if (this.finished || this.active[slot] !== order) return;
         order.leaving = false;
         if (filledCount(order) === 0) {
             if (!order.cancelled) {
