@@ -88,7 +88,8 @@ export class OrderManager extends Component {
     @property({ type: Enum(OrderMode), tooltip: 'Different: mỗi đơn 3 cốc khác loại nhau. Same: mỗi đơn 3 cốc cùng một loại', group: GROUP.modePlay })
     orderMode = OrderMode.Different;
 
-    @property({ tooltip: 'Thua khi có bấy nhiêu khách bỏ đi', group: GROUP.level })
+    // Giữ tên biến `maxWalkouts` để scene không mất giá trị đã lưu.
+    @property({ displayName: 'Số lần sai ra store', tooltip: 'Mỗi khách hết giờ bỏ đi = 1 lần sai. Sai đủ bấy nhiêu lần thì thua và mở store. 0 = tắt', group: GROUP.level })
     maxWalkouts = 3;
 
     // ── Tham chiếu: các thành phần gameplay được nối trong Inspector ──
@@ -378,13 +379,19 @@ export class OrderManager extends Component {
         return this.customers[slot]?.getComponent(CustomerTimer) ?? null;
     }
 
-    /** Hết giờ: khách bỏ đi; đủ `maxWalkouts` khách bỏ đi thì thua, nếu không thì khách khác vào thay. */
+    /**
+     * Hết giờ: khách bỏ đi (1 lần sai); sai đủ `maxWalkouts` lần thì thua và mở store,
+     * nếu không thì khách khác vào thay.
+     */
     private onTimeout(slot: number): void {
         const order = this.active[slot];
         if (this.finished || !order || order.done || order.leaving || filledCount(order) >= order.slots.length) return;
         order.leaving = true;
         this.walkouts++;
-        if (this.walkouts >= this.maxWalkouts) this.lose('walkouts');
+        if (this.maxWalkouts > 0 && this.walkouts >= this.maxWalkouts) {
+            this.lose('walkouts');
+            gc?.redirectToStore();
+        }
         this.customers[slot].angryLeave(() => this.replaceCustomer(slot, order));
     }
 
