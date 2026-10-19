@@ -247,6 +247,16 @@ export class CustomerController extends Component {
         this.syncAvatarRoot();
     }
 
+    /**
+     * Vẽ khách này lên trên các khách khác: khay trong UI_Orders và Avatar trong `avatarLayer`
+     * (Chat đặt trong Avatar sẽ nằm trên avatar của khách bên cạnh). CustomerChat gọi khi khách nói.
+     */
+    bringToFront(): void {
+        for (const n of [this.node.parent, this.avatarRoot]) {
+            if (n?.parent) n.setSiblingIndex(n.parent.children.length - 1);
+        }
+    }
+
     onEnable(): void {
         if (this.avatarRoot) {
             this.avatarRoot.active = true;

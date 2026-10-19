@@ -36,27 +36,59 @@ export class CustomerChat extends Component {
         'Make it quick, please!',
     ];
 
+    @property({ tooltip: 'Câu nói khi vào gameplay, nếu khách này là người nói đầu tiên trong màn (khách đứng giữa). Để trống = câu ngẫu nhiên', group: GROUP.chat })
+    firstLine = "It's raining! Hurry before your customers leave!";
+
     @property({ tooltip: 'Thời gian bong bóng hiện (giây)', group: GROUP.chat })
     showDuration = 2;
 
     /** Câu vừa nói (dùng chung cho mọi khách), tránh hai lần nói liên tiếp trùng câu. */
     private static lastLine = -1;
 
+    /** Lần nói kế tiếp dùng `firstLine` thay câu ngẫu nhiên. OrderManager bật khi vào màn. */
+    static firstPending = false;
+    /** Đang giữ lời thoại (IntroRain đang chạy): khách nói trong lúc này được hoãn tới `release()`. */
+    private static held = false;
+    private static waiting: CustomerChat | null = null;
+
+    /** Hoãn lời thoại của khách cho tới `release()` (vd chờ intro mưa mờ xong). */
+    static hold(): void {
+        CustomerChat.held = true;
+    }
+
+    /** Thôi hoãn: khách đã định nói trong lúc hoãn sẽ nói ngay. */
+    static release(): void {
+        CustomerChat.held = false;
+        const chat = CustomerChat.waiting;
+        CustomerChat.waiting = null;
+        if (chat?.isValid && chat.node.activeInHierarchy) chat.say();
+    }
+
     onLoad(): void {
         if (this.bubble) this.bubble.active = false;
     }
 
-    /** Hiện một câu ngẫu nhiên (khác câu trước) với hiệu ứng nảy, tự ẩn sau `showDuration` giây. */
+    /** Hiện `firstLine` nếu là câu đầu màn, không thì một câu ngẫu nhiên (khác câu trước); hiệu ứng nảy, tự ẩn sau `showDuration` giây. */
     say(): void {
-        if (!this.bubble || !this.lines.length) return;
-        let index = Math.floor(Math.random() * this.lines.length);
-        if (index === CustomerChat.lastLine && this.lines.length > 1) index = (index + 1) % this.lines.length;
-        CustomerChat.lastLine = index;
-        if (this.label) this.label.string = this.lines[index];
+        if (!this.bubble) return;
+        if (CustomerChat.held) {
+            CustomerChat.waiting = this;
+            return;
+        }
+        let line = CustomerChat.firstPending ? this.firstLine : '';
+        CustomerChat.firstPending = false;
+        if (!line) {
+            if (!this.lines.length) return;
+            let index = Math.floor(Math.random() * this.lines.length);
+            if (index === CustomerChat.lastLine && this.lines.length > 1) index = (index + 1) % this.lines.length;
+            CustomerChat.lastLine = index;
+            line = this.lines[index];
+        }
+        if (this.label) this.label.string = line;
 
-        // Bong bóng tràn sang chỗ khách bên cạnh: đưa khay của khách này lên trên cùng để không bị avatar bên cạnh che.
-        const tray = this.node.parent;
-        if (tray?.parent) tray.setSiblingIndex(tray.parent.children.length - 1);
+        // Bong bóng tràn sang chỗ khách bên cạnh: đưa khách này (khay + avatar) lên trên cùng để không bị avatar bên cạnh che.
+        // Gọi theo tên class để tránh import vòng (CustomerController đã import CustomerChat).
+        (this.getComponent('CustomerController') as unknown as { bringToFront?(): void } | null)?.bringToFront?.();
         const bubble = this.bubble;
         this.unschedule(this.hide);
         Tween.stopAllByTarget(bubble);
@@ -68,6 +100,7 @@ export class CustomerChat extends Component {
 
     /** Khách rời đi: tắt bong bóng ngay. */
     stop(): void {
+        if (CustomerChat.waiting === this) CustomerChat.waiting = null;
         this.unschedule(this.hide);
         this.hideNow();
     }

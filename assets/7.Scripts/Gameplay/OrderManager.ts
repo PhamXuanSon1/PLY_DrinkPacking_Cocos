@@ -5,6 +5,7 @@ import { DrinkItemManager } from '../MapTool/DrinkItemManager';
 import { DrinkTile } from '../MapTool/DrinkTile';
 import { LevelMapBuilder } from '../MapTool/LevelMapBuilder';
 import { CustomerController } from './CustomerController';
+import { CustomerChat } from './CustomerChat';
 import { CustomerLookLibrary } from './CustomerLookLibrary';
 import { WaitTray } from './WaitTray';
 import { FxType, Ply_SoundManager } from '../MyScript/ScriptTemplate/Ply_SoundManager';
@@ -102,7 +103,7 @@ export class OrderManager extends Component {
     @property({ type: LevelMapBuilder, tooltip: 'Lấy sprite đồ uống theo drinkId (drinkFrames) cho ảnh mờ của khách', group: GROUP.refs })
     mapBuilder: LevelMapBuilder | null = null;
 
-    @property({ type: [CustomerController], tooltip: 'Các chỗ đứng của khách (3 chỗ)', group: GROUP.refs })
+    @property({ type: [CustomerController], tooltip: 'Các chỗ đứng của khách. Để trống = lấy mọi khay trong UI_Orders', group: GROUP.refs })
     customers: CustomerController[] = [];
 
     @property({ type: WaitTray, tooltip: 'Khay chờ 6 ô', group: GROUP.refs })
@@ -155,6 +156,8 @@ export class OrderManager extends Component {
     private clockStarted = false;
     /** Tăng mỗi lần startLevel; callback animation của lượt cũ so khớp số này để không sửa trạng thái lượt mới. */
     private round = 0;
+    /** IntroRain bật: startLevel chưa gọi khách đầu màn, chờ `releaseCustomers()` (tối + mưa trước, khách vào sau). */
+    holdCustomers = false;
 
     start(): void {
         // Đã ra store (GameController.stopGame): khóa cốc + dừng đồng hồ; quay lại game thì click
@@ -208,26 +211,34 @@ export class OrderManager extends Component {
         this.tray?.reset();
         // Mỗi vị trí bắt đầu chưa có đơn; gọi khách cho từng vị trí bên dưới.
         this.active = this.customers.map(() => null);
-        // Lượt đầu chỉ khách đứng giữa nói; sau đó đếm lại từ đầu.
-        const middle = this.middleSlot();
-        this.customers.forEach((c, i) => {
-            c.node.active = false;
-            // Lượt khách đầu màn đứng sẵn ở quầy, không trượt vào.
-            this.spawnCustomer(i, i === middle, true, i === middle && this.firstCustomerTime > 0 ? this.firstCustomerTime : undefined);
-        });
+        for (const c of this.customers) c.node.active = false;
+        // Khách đầu màn đứng sẵn ở quầy; đang giữ (intro) thì chờ releaseCustomers mới trượt vào.
+        if (!this.holdCustomers) this.spawnFirstCustomers(true);
         this.resetChatCountdown();
         this.updateLabel();
         this.node.emit(LEVEL_START_EVENT);
+    }
+
+    /** Thôi giữ: khách đầu màn trượt vào (`instant` = đứng sẵn). Không đang giữ thì không làm gì. */
+    releaseCustomers(instant = false): void {
+        if (!this.holdCustomers) return;
+        this.holdCustomers = false;
+        this.spawnFirstCustomers(instant);
+    }
+
+    /** Gọi khách cho mọi chỗ đứng; chỉ khách đứng giữa nói (câu `firstLine` của CustomerChat). */
+    private spawnFirstCustomers(instant: boolean): void {
+        const middle = this.middleSlot();
+        CustomerChat.firstPending = true;
+        this.customers.forEach((_, i) =>
+            this.spawnCustomer(i, i === middle, instant, i === middle && this.firstCustomerTime > 0 ? this.firstCustomerTime : undefined));
     }
 
     private onTileTouched(event: { currentTarget: Node }): void {
         const tile = event.currentTarget.getComponent(DrinkTile);
         // Bỏ qua cốc không hợp lệ, màn đã xong, hoặc cốc đang bị che / không chọn được.
         if (!tile || this.finished || gc?.stopped || !this.itemManager?.isSelectable(tile)) return;
-        if (!this.clockStarted) {
-            this.clockStarted = true;
-            this.customers.forEach((_, i) => this.timerOf(i)?.resume());
-        }
+        this.startClocks();
 
         const target = this.findSlot(tile.drinkId);
         if (!target && this.tray?.isFull()) return; // Khay đầy: không nhận thêm, không mất cốc.
@@ -378,6 +389,13 @@ export class OrderManager extends Component {
         const time = order.fixedTime ?? this.randomTime();
         order.fixedTime = undefined;
         this.timerOf(slot)?.begin(() => this.onTimeout(slot), time, !this.clockStarted || !!gc?.stopped, !this.clockStarted);
+    }
+
+    /** Hiện và chạy đồng hồ của các khách (mặc định từ lần click cốc đầu tiên; IntroRain gọi sớm hơn khi hết intro). */
+    startClocks(): void {
+        if (this.clockStarted) return;
+        this.clockStarted = true;
+        this.customers.forEach((_, i) => this.timerOf(i)?.resume());
     }
 
     private randomTime(): number {

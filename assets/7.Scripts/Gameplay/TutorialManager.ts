@@ -18,24 +18,25 @@ const GROUP = {
 /**
  * Tutorial đầu game:
  * 1. Bàn trống, một vị khách đứng sẵn ở quầy (khách đứng giữa).
- * 2. Thuyền trưởng trượt vào ở góc dưới, bong bóng thoại hiện chữ dần:
- *    câu 1 → "Tap to continue" → câu 2.
- * 3. Đơn trộn loại của khách hiện trên đĩa (`orderDrinks`), bàn có 3 cốc mẫu bày khác thứ tự
+ * 2. Đơn trộn loại của khách hiện trên đĩa (`orderDrinks`), bàn có 3 cốc mẫu bày khác thứ tự
  *    (`tileDrinks`); bàn tay chỉ vào từng cốc, người chơi bấm cốc nào thì cốc bay vào đúng ô cần loại đó (dùng chung animation giao cốc / đủ đơn của CustomerController).
- * 4. Đủ đơn: câu 3 → "Tap to continue" → thuyền trưởng rời đi, bàn thật hiện ra và
- *    OrderManager.startLevel() bắt đầu màn chơi.
- * Tắt `useGuide`: bỏ bước 2 và phần thoại ở bước 4 — khách đứng sẵn → đơn + 3 cốc mẫu →
- * đủ đơn, khách rời đi là vào màn chơi luôn.
+ * 3. Đủ đơn: khách rời đi, bàn thật hiện ra và OrderManager.startLevel() bắt đầu màn chơi.
+ *
+ * Thuyền trưởng (`useGuide`) không xuất hiện trong tutorial mà lúc vào gameplay: IntroRain gọi
+ * `playGuide` khi đang mưa — trượt vào, nói một lượt mọi dòng `lines` (không nhận chạm khi đang nói),
+ * nói xong hiện TapHint, chạm thì rời đi.
  *
  * Cấu trúc node:
- * Tutorial (TutorialManager)
- * ├── TutorialBoard   (chứa 3 cốc mẫu)
- * ├── Blocker         (chặn chạm toàn màn hình lúc thoại; chạm = qua câu / hiện hết chữ)
- * └── Guide           (thuyền trưởng, góc dưới)
- *     ├── Captain
- *     ├── Bubble      (Sprite bubble_chat; nếu dùng Graphics thì vẽ khung bằng code)
- *     │   └── Text    (RichText hoặc Label)
- *     └── TapHint     ("Tap to continue", hiện tĩnh, nằm ngoài khung thoại)
+ * Tutorial
+ * └── TutorialBoard   (chứa 3 cốc mẫu)
+ * Rain (IntroRain, trên cùng Canvas)
+ * ├── BlackPanel
+ * ├── Blocker         (chặn chạm toàn màn hình lúc thoại; nói xong mới nhận chạm)
+ * ├── Guide           (thuyền trưởng, góc dưới, nằm trên BlackPanel)
+ * │   ├── Captain
+ * │   └── Bubble      (Sprite bubble_chat; nếu dùng Graphics thì vẽ khung bằng code)
+ * │       └── Text    (RichText hoặc Label)
+ * └── TapHint         ("Tap to continue", hiện khi nói xong)
  */
 @ccclass('TutorialManager')
 export class TutorialManager extends Component {
@@ -63,7 +64,7 @@ export class TutorialManager extends Component {
     @property({ type: Node, tooltip: 'Bàn tay chỉ (Tut/Hand)', group: GROUP.refs })
     hand: Node | null = null;
 
-    @property({ tooltip: 'Có thuyền trưởng dẫn truyện (thoại + "Tap to continue"). Tắt = chỉ có lượt chơi mẫu: đủ đơn là vào màn chơi luôn', group: GROUP.guide })
+    @property({ tooltip: 'Thuyền trưởng nói lời thoại khi vào gameplay (lúc mưa, IntroRain); chạm sau câu cuối thì rời đi, màn sáng lên. Tắt = mưa tự tắt sau Hold Time', group: GROUP.guide })
     useGuide = true;
 
     @property({ type: Node, tooltip: 'Gốc thuyền trưởng (trượt vào / ra)', group: GROUP.guide })
@@ -84,7 +85,7 @@ export class TutorialManager extends Component {
     @property({ type: Node, tooltip: '"Tap to continue"', group: GROUP.guide })
     tapHint: Node | null = null;
 
-    @property({ type: [String], tooltip: 'Câu 1, câu 2 (trước lượt chơi), câu 3 (sau khi đủ đơn)', group: GROUP.guide })
+    @property({ type: [String], tooltip: 'Lời thuyền trưởng khi vào gameplay: mọi dòng hiện trong một lượt thoại, mỗi phần tử một dòng', group: GROUP.guide })
     lines: string[] = [
         'Welcome to\n<hl>Cozy Drink Match</hl>!\nLet’s serve our first customer.',
         'Check their order and pick the right drinks',
@@ -203,24 +204,41 @@ export class TutorialManager extends Component {
         // Khách tutorial đứng sẵn ở quầy, không trượt vào.
         this.customer.show(this.customerAvatar, this.orderFrames(), false, true, undefined, this.customerLook());
         for (const g of this.customer.ghosts) g.node.active = false;
-        this.scheduleOnce(() => (this.useGuide ? this.showGuide() : this.startPlay()), 0.3);
+        this.scheduleOnce(() => this.startPlay(), 0.3);
     }
 
-    /** Bước 2: thuyền trưởng trượt vào, nói câu 1 → chạm → câu 2 → vào lượt chơi mẫu. */
-    private showGuide(): void {
+    /**
+     * Thuyền trưởng nói lúc vào gameplay (Guide + Blocker + TapHint đặt trong node Rain, trên BlackPanel):
+     * trượt vào, nói một lượt mọi dòng `lines`, nói xong hiện TapHint; chạm thì trượt ra và gọi `done`.
+     * Trả false (không làm gì) khi tắt `useGuide` / thiếu node / không có câu nào.
+     */
+    playGuide(done: () => void): boolean {
         const guide = this.guide;
-        if (!guide || !this.guideHome) return this.startPlay();
         const home = this.guideHome;
+        if (!this.useGuide || !guide || !home || !this.lines.length) return false;
+        const away = new Vec3(home.x - this.guideSlide, home.y, home.z);
         guide.active = true;
         if (this.bubble) this.bubble.active = false;
-        guide.setPosition(home.x - this.guideSlide, home.y, home.z);
+        guide.setPosition(away);
+        const leave = (): void => {
+            if (this.blocker) this.blocker.active = false;
+            tween(guide)
+                .to(this.guideSlideDuration, { position: away }, { easing: 'backIn' })
+                .call(() => {
+                    guide.active = false;
+                    guide.setPosition(home);
+                })
+                .start();
+            done();
+        };
         tween(guide)
             .to(this.guideSlideDuration, { position: home }, { easing: 'backOut' })
-            .call(() => this.say(0, () => this.waitTap(() => this.say(1, () => this.startPlay()))))
+            .call(() => this.say(this.lines.join('\n'), () => this.waitTap(leave)))
             .start();
+        return true;
     }
 
-    /** Bước 3: hiện đơn trên đĩa, bày 3 cốc mẫu, bàn tay chỉ vào cốc đầu tiên. */
+    /** Bước 2: hiện đơn trên đĩa, bày 3 cốc mẫu, bàn tay chỉ vào cốc đầu tiên. */
     private startPlay(): void {
         if (this.blocker) this.blocker.active = false;
         const customer = this.customer!;
@@ -231,10 +249,10 @@ export class TutorialManager extends Component {
         });
         this.spawnTiles();
         this.scheduleOnce(() => this.showHand(), 0.5);
-        if (!this.useGuide) this.showPlayHint();
+        this.showPlayHint();
     }
 
-    /** Không có thuyền trưởng: hiện chữ "Tap to play" (`playHint`, giữ vị trí đặt trong scene) tới lần chạm cốc mẫu đầu tiên. */
+    /** Hiện chữ "Tap to play" (`playHint`, giữ vị trí đặt trong scene) tới lần chạm cốc mẫu đầu tiên. */
     private showPlayHint(): void {
         const hint = this.playHint;
         if (!hint) return;
@@ -327,27 +345,10 @@ export class TutorialManager extends Component {
         if (this.used.size < this.tiles.length) this.scheduleOnce(() => this.showHand(), 0.45);
     }
 
-    /** Bước 4: đủ đơn → khách vui rồi đi, thuyền trưởng nói câu 3; cả hai xong mới cho chạm để vào game. */
+    /** Bước 3: đủ đơn → khách vui rồi đi là vào màn chơi luôn, không chờ chạm. */
     private complete(): void {
-        // Không có thuyền trưởng: khách vui rồi đi là vào màn chơi luôn, không chờ chạm.
-        if (!this.useGuide) {
-            this.hidePlayHint();
-            this.customer?.leave(() => this.finish());
-            return;
-        }
-        let typed = false;
-        let left = false;
-        const next = (): void => {
-            if (typed && left) this.waitTap(() => this.finish());
-        };
-        this.customer?.leave(() => {
-            left = true;
-            next();
-        });
-        this.say(2, () => {
-            typed = true;
-            next();
-        });
+        this.hidePlayHint();
+        this.customer?.leave(() => this.finish());
     }
 
     /** Kết thúc: thuyền trưởng rời đi, bàn thật hiện ra, bắt đầu màn chơi. */
@@ -372,9 +373,9 @@ export class TutorialManager extends Component {
         ui?.showFirstOn();
     }
 
-    /** Hiện câu `index` trong khung thoại, chữ hiện dần; `done` khi đã hiện hết. */
-    private say(index: number, done: () => void): void {
-        const text = this.applyHighlight(this.lines[index] ?? '');
+    /** Hiện `line` trong khung thoại, chữ hiện dần; `done` khi đã hiện hết. */
+    private say(line: string, done: () => void): void {
+        const text = this.applyHighlight(line);
         if (this.blocker) this.blocker.active = true;
         const bubble = this.bubble;
         if (bubble && !bubble.active) {
@@ -409,11 +410,12 @@ export class TutorialManager extends Component {
         }
     }
 
-    /** Chạm lúc chữ đang hiện → hiện hết ngay; chạm lúc đang chờ → qua bước tiếp. */
+    /** Chạm lúc chữ đang hiện → bỏ qua; chạm lúc đang chờ (TapHint) → qua bước tiếp. */
     private onBlockerTap(): void {
         // Lớp chặn giữ lại chạm nên InputManager chưa bật nhạc: bật ở chạm đầu tiên trong tutorial.
         Ply_SoundManager.Ins?.playBGM();
-        if (this.typing) return this.finishTyping();
+        // Đang nói: không nhận chạm, nói xong mới cho qua.
+        if (this.typing) return;
         const next = this.onTap;
         if (!next) return;
         this.onTap = null;
@@ -506,7 +508,7 @@ export class TutorialManager extends Component {
      * Chỉ dùng trong editor (EditorViewSwitcher, view Intro): dựng cảnh tutorial để xem trước —
      * khách giữa với avatar + đơn mẫu, 3 cốc mẫu (không được lưu vào scene). Không đổi vị trí /
      * scale node nào; trả về các node cần ẩn (đĩa khác, ô khay ngoài tutorialSlots, thuyền trưởng
-     * khi tắt useGuide) để EditorViewSwitcher ẩn và tự bật lại khi chạy game.
+     * vì chỉ nói lúc vào gameplay) để EditorViewSwitcher ẩn và tự bật lại khi chạy game.
      * `on` = false: chỉ dọn cốc mẫu.
      */
     editorPreview(on: boolean): Node[] {
@@ -541,8 +543,7 @@ export class TutorialManager extends Component {
         const slots = this.tutorialSlots.filter(n => n?.isValid);
         const slotParent = slots[0]?.parent;
         if (slotParent) hide.push(...slotParent.children.filter(c => !slots.includes(c)));
-        if (!this.useGuide) hide.push(...[this.guide, this.blocker].filter((n): n is Node => !!n));
-        else if (this.playHint) hide.push(this.playHint);
+        hide.push(...[this.guide, this.blocker].filter((n): n is Node => !!n));
         return hide;
     }
 
