@@ -1,12 +1,13 @@
 import { _decorator, Color, Component, instantiate, Node, Prefab, Tween, tween, Vec2 } from 'cc';
 import { CustomerController } from './CustomerController';
 import { ClockTimer } from './Effects/ClockTimer';
+import { ClockBar } from './Effects/ClockBar';
 import { FxType, Ply_SoundManager } from '../MyScript/ScriptTemplate/Ply_SoundManager';
 const { ccclass, property } = _decorator;
 
 /**
  * Đồng hồ đếm ngược bên cạnh khách (gắn trên node Customer, cạnh CustomerController).
- * Hình là prefab ClockTimer (Sprite Filled / Radial), script này tự đếm giờ và mỗi frame đặt
+ * Hình là prefab ClockTimer (Sprite Filled / Radial) hoặc ClockBar (thanh xanh → đỏ), script này tự đếm giờ và mỗi frame đặt
  * phần còn lại + màu (xanh → vàng → đỏ); còn ít thời gian (`warnRatio`) thì rung và mặt khách
  * đỏ dần (CustomerController.setAnger). Hết giờ gọi `onTimeout` do OrderManager truyền vào.
  */
@@ -18,7 +19,7 @@ export class CustomerTimer extends Component {
     @property({ tooltip: 'Còn bấy nhiêu giây thì phát sound 2 giây cuối (Ply_SoundManager: Clock Last 2s)' })
     lastSeconds = 2;
 
-    @property({ type: Prefab, tooltip: 'Prefab đồng hồ (5.Prefabs/ClockTimer), có component ClockTimer' })
+    @property({ type: Prefab, tooltip: 'Prefab đồng hồ: 5.Prefabs/ClockBar (thanh) hoặc 5.Prefabs/ClockTimer (vòng tròn)' })
     clockPrefab: Prefab | null = null;
 
     @property({ tooltip: 'Vị trí đồng hồ so với node Customer (px)' })
@@ -41,6 +42,8 @@ export class CustomerTimer extends Component {
 
     private view: Node | null = null;
     private clock: ClockTimer | null = null;
+    /** Thanh thời gian: tự đổi màu, nhấp nháy và lắc icon đồng hồ nên không rung cả khối. */
+    private bar: ClockBar | null = null;
     private duration = 0;
     private left = 0;
     private running = false;
@@ -67,6 +70,7 @@ export class CustomerTimer extends Component {
         view.active = false;
         this.view = view;
         this.clock = view.getComponent(ClockTimer);
+        this.bar = view.getComponent(ClockBar);
     }
 
     /**
@@ -153,6 +157,7 @@ export class CustomerTimer extends Component {
     }
 
     private show(ratio: number): void {
+        if (this.bar) return this.bar.SetProgress(ratio);
         this.clock?.SetProgress(ratio, this.tintFill ? this.colorAt(ratio) : undefined);
     }
 
@@ -165,7 +170,7 @@ export class CustomerTimer extends Component {
     /** Rung nhẹ (lắc qua lại) khi sắp hết giờ. */
     private setShake(on: boolean): void {
         const view = this.view;
-        if (!view || on === this.shaking) return;
+        if (!view || this.bar || on === this.shaking) return;
         this.shaking = on;
         Tween.stopAllByTarget(view);
         view.angle = 0;

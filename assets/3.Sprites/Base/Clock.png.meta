@@ -2,7 +2,7 @@
   "ver": "1.0.27",
   "importer": "image",
   "imported": true,
-  "uuid": "9c159b09-a082-4440-9be6-59d03df90dff",
+  "uuid": "41e468ab-1912-4b5d-832f-f6c279364694",
   "files": [
     ".json",
     ".png"
@@ -10,8 +10,8 @@
   "subMetas": {
     "6c48a": {
       "importer": "texture",
-      "uuid": "9c159b09-a082-4440-9be6-59d03df90dff@6c48a",
-      "displayName": "Clock",
+      "uuid": "41e468ab-1912-4b5d-832f-f6c279364694@6c48a",
+      "displayName": "clock",
       "id": "6c48a",
       "name": "texture",
       "userData": {
@@ -22,7 +22,7 @@
         "mipfilter": "none",
         "anisotropy": 0,
         "isUuid": true,
-        "imageUuidOrDatabaseUri": "9c159b09-a082-4440-9be6-59d03df90dff",
+        "imageUuidOrDatabaseUri": "41e468ab-1912-4b5d-832f-f6c279364694",
         "visible": false
       },
       "ver": "1.0.22",
@@ -34,8 +34,8 @@
     },
     "f9941": {
       "importer": "sprite-frame",
-      "uuid": "9c159b09-a082-4440-9be6-59d03df90dff@f9941",
-      "displayName": "Clock",
+      "uuid": "41e468ab-1912-4b5d-832f-f6c279364694@f9941",
+      "displayName": "clock",
       "id": "f9941",
       "name": "spriteFrame",
       "userData": {
@@ -46,10 +46,10 @@
         "offsetY": 0,
         "trimX": 0,
         "trimY": 0,
-        "width": 58,
-        "height": 61,
-        "rawWidth": 58,
-        "rawHeight": 61,
+        "width": 92,
+        "height": 89,
+        "rawWidth": 92,
+        "rawHeight": 89,
         "borderTop": 0,
         "borderBottom": 0,
         "borderLeft": 0,
@@ -61,17 +61,17 @@
         "meshType": 0,
         "vertices": {
           "rawPosition": [
-            -29,
-            -30.5,
+            -46,
+            -44.5,
             0,
-            29,
-            -30.5,
+            46,
+            -44.5,
             0,
-            -29,
-            30.5,
+            -46,
+            44.5,
             0,
-            29,
-            30.5,
+            46,
+            44.5,
             0
           ],
           "indexes": [
@@ -84,12 +84,12 @@
           ],
           "uv": [
             0,
-            61,
-            58,
-            61,
+            89,
+            92,
+            89,
             0,
             0,
-            58,
+            92,
             0
           ],
           "nuv": [
@@ -103,18 +103,18 @@
             1
           ],
           "minPos": [
-            -29,
-            -30.5,
+            -46,
+            -44.5,
             0
           ],
           "maxPos": [
-            29,
-            30.5,
+            46,
+            44.5,
             0
           ]
         },
         "isUuid": true,
-        "imageUuidOrDatabaseUri": "9c159b09-a082-4440-9be6-59d03df90dff@6c48a",
+        "imageUuidOrDatabaseUri": "41e468ab-1912-4b5d-832f-f6c279364694@6c48a",
         "atlasUuid": ""
       },
       "ver": "1.0.12",
@@ -129,6 +129,6 @@
     "type": "sprite-frame",
     "fixAlphaTransparencyArtifacts": true,
     "hasAlpha": true,
-    "redirect": "9c159b09-a082-4440-9be6-59d03df90dff@6c48a"
+    "redirect": "41e468ab-1912-4b5d-832f-f6c279364694@6c48a"
   }
 }
