@@ -54,7 +54,7 @@ interface Order {
 
 /** Cách khách gọi đơn. */
 export enum OrderMode {
-    /** 3 cốc khác loại nhau (ví dụ [A, B, C]); cuối màn không còn đủ loại thì cho lặp loại. */
+    /** Tối đa `maxTypesPerOrder` loại mỗi đơn (ví dụ 2 → [A, A, B]); cuối màn thiếu cốc thì cho thêm loại. */
     Different,
     /** 3 cốc cùng một loại (ví dụ [A, A, A]). */
     Same,
@@ -85,8 +85,11 @@ export class OrderManager extends Component {
     autoStart = true;
 
     
-    @property({ type: Enum(OrderMode), tooltip: 'Different: mỗi đơn 3 cốc khác loại nhau. Same: mỗi đơn 3 cốc cùng một loại', group: GROUP.modePlay })
+    @property({ type: Enum(OrderMode), tooltip: 'Different: mỗi đơn tối đa Max Types Per Order loại (vd [A, A, B]). Same: mỗi đơn 3 cốc cùng một loại', group: GROUP.modePlay })
     orderMode = OrderMode.Different;
+
+    @property({ tooltip: 'Mode Different: mỗi đơn tối đa bấy nhiêu loại đồ uống (vd 2 → [A, A, B]). >= số cốc mỗi đơn = mỗi cốc một loại', group: GROUP.modePlay })
+    maxTypesPerOrder = 2;
 
     // Giữ tên biến `maxWalkouts` để scene không mất giá trị đã lưu.
     @property({ displayName: 'Số lần sai ra store', tooltip: 'Mỗi khách hết giờ bỏ đi = 1 lần sai. Sai đủ bấy nhiêu lần thì thua, hiện endcard; bấm endcard thì ra store. 0 = tắt', group: GROUP.level })
@@ -450,9 +453,10 @@ export class OrderManager extends Component {
     }
 
     /**
-     * Mode Different: rút ngẫu nhiên cupsPerOrder loại khác nhau cho đơn mới từ inventory `unassigned`
-     * (rút không hoàn lại: không gọi quá số cốc còn lại của từng loại). Cuối màn còn ít loại hơn số
-     * cốc một đơn thì mới cho lặp loại. Trả về null khi tổng cốc chưa dành không đủ một đơn.
+     * Mode Different: rút ngẫu nhiên cupsPerOrder cốc cho đơn mới từ inventory `unassigned`
+     * (rút không hoàn lại: không gọi quá số cốc còn lại của từng loại). Rút loại mới cho tới khi đủ
+     * `maxTypesPerOrder` loại, các ô còn lại lặp lại các loại đã chọn; hết cốc của các loại đó thì mới
+     * thêm loại khác. Trả về null khi tổng cốc chưa dành không đủ một đơn.
      *
      * Cốc đang nằm trong khay được đưa vào đơn trước (giải phóng khay, mỗi loại 1 cốc).
      * Các ô còn lại chỉ rút trong nhóm loại lấy được sớm nhất: trước hết loại "lấy được ngay" (cốc trong
@@ -462,6 +466,7 @@ export class OrderManager extends Component {
      */
     private pickDifferentOrder(): number[] | null {
         const need = this.cupsPerOrder;
+        const maxTypes = Math.max(1, this.maxTypesPerOrder);
         const left = new Map<number, number>();
         let total = 0;
         this.unassigned.forEach((n, id) => {
@@ -508,19 +513,17 @@ export class OrderManager extends Component {
         // nhiều cốc trong khay nhất trước, để mỗi khách mới giải phóng khay; mỗi loại 1 cốc vì đơn khác loại.
         const trayIds = Array.from(inTray.keys()).filter(id => inTray.get(id)! > 0).sort((a, b) => inTray.get(b)! - inTray.get(a)!);
         for (const id of trayIds) {
-            if (drinks.length < need && left.get(id)! > 0) take(id);
+            if (drinks.length < need && picked.size < maxTypes && left.get(id)! > 0) take(id);
         }
         while (drinks.length < need) {
-            // Chỉ rút loại chưa có trong đơn; cuối màn không còn đủ loại khác nhau thì mới cho lặp loại
-            // (bắt buộc để mọi cốc còn lại vẫn chia hết vào đơn).
-            let fresh = false;
-            left.forEach((n, id) => {
-                if (n > 0 && !picked.has(id)) fresh = true;
-            });
+            // Chưa đủ `maxTypes` loại: chỉ rút loại chưa có trong đơn. Đủ rồi: chỉ lặp lại các loại đã chọn.
+            // Không còn cốc phù hợp (cuối màn) thì rút loại bất kỳ còn cốc, để mọi cốc vẫn chia hết vào đơn.
+            const wantNew = picked.size < maxTypes;
             const candidates: number[] = [];
             left.forEach((n, id) => {
-                if (n > 0 && !(fresh && picked.has(id))) candidates.push(id);
+                if (n > 0 && picked.has(id) !== wantNew) candidates.push(id);
             });
+            if (candidates.length === 0) left.forEach((n, id) => n > 0 && candidates.push(id));
             // Chỉ gọi loại lấy được sớm nhất có thể: ưu tiên loại lấy được ngay (đợt 0), không có mới
             // tới loại lộ ra sau 1, 2... đợt bốc; cốc nằm sâu hơn `lookahead` chỉ gọi khi không còn cách nào.
             let tier = -1;
