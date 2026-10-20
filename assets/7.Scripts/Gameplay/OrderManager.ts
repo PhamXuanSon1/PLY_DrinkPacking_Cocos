@@ -1,4 +1,5 @@
 import { _decorator, Component, find, Label, Node, SpriteFrame, Vec2 } from 'cc';
+import { gc } from '../Tool/GameController';
 import { DrinkItemManager } from '../MapTool/DrinkItemManager';
 import { DrinkTile } from '../MapTool/DrinkTile';
 import { LevelMapBuilder } from '../MapTool/LevelMapBuilder';
@@ -153,8 +154,9 @@ export class OrderManager extends Component {
 
     private onTileTouched(event: { currentTarget: Node }): void {
         const tile = event.currentTarget.getComponent(DrinkTile);
-        // Bỏ qua cốc không hợp lệ, màn đã xong, hoặc cốc đang bị che / không chọn được.
-        if (!tile || this.finished || !this.itemManager?.isSelectable(tile)) return;
+        // Bỏ qua cốc không hợp lệ, màn đã xong, đã ra store (GameController.stopGame: click lúc này chỉ
+        // mở lại store, xem StoreRedirect), hoặc cốc đang bị che / không chọn được.
+        if (!tile || this.finished || gc?.stopped || !this.itemManager?.isSelectable(tile)) return;
 
         const target = this.findSlot(tile.drinkId);
         if (!target && this.tray?.isFull()) return; // Khay đầy: không nhận thêm, không mất cốc.
