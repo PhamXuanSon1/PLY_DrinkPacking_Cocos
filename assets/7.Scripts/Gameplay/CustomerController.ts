@@ -182,9 +182,10 @@ export class CustomerController extends Component {
 
     /**
      * Hiện khách mới: ảnh mờ của đơn hiện ngay trên đĩa, Avatar trượt vào từ bên trái.
+     * `drinkFrames[i]`: sprite đồ uống khách cần ở ô thứ i (đơn trộn loại, mỗi ô một ảnh mờ riêng).
      * `talk` = true: khách nói một câu (CustomerChat) ngay khi trượt vào xong.
      */
-    show(avatarFrame: SpriteFrame | null, drinkFrame: SpriteFrame | null, talk = false, instant = false): void {
+    show(avatarFrame: SpriteFrame | null, drinkFrames: readonly (SpriteFrame | null)[], talk = false, instant = false): void {
         if (!this.homePosition) this.homePosition = this.slideNode.position.clone();
         const home = this.homePosition;
         this.node.active = true;
@@ -209,14 +210,15 @@ export class CustomerController extends Component {
             this.fitAvatar(avatarFrame);
         }
         const ghostTint = new Color(this.ghostColor.r, this.ghostColor.g, this.ghostColor.b, this.ghostAlpha);
-        for (const ghost of this.ghosts) {
+        this.ghosts.forEach((ghost, i) => {
+            const drinkFrame = drinkFrames[i] ?? null;
             ghost.node.active = true;
             ghost.spriteFrame = drinkFrame;
             ghost.color = ghostTint;
             const ut = ghost.node.getComponent(UITransform);
             const rect = drinkFrame?.rect;
             if (ut && rect && rect.height) ut.width = ut.height * rect.width / rect.height;
-        }
+        });
         for (const tick of this.ticks) tick.active = false;
     }
 

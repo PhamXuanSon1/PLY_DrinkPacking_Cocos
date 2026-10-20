@@ -12,23 +12,44 @@ export const LEVEL_START_EVENT = 'level-start';
 export const LEVEL_WIN_EVENT = 'level-win';
 export const LEVEL_LOSE_EVENT = 'level-lose';
 
-/** Một đơn: khách cần cupsPerOrder cốc cùng loại `drinkId`. */
-interface Order {
+/** Trạng thái một ô trên đĩa của đơn. */
+enum SlotState {
+    /** Chưa có cốc nào được giao cho ô này. */
+    Empty,
+    /** Đã giữ chỗ: cốc đang bay tới ô này. */
+    Flying,
+    /** Cốc đã đáp xuống ô này. */
+    Landed,
+}
+
+/** Một ô của đơn: loại đồ uống khách cần ở đúng vị trí đó trên đĩa. */
+interface OrderSlot {
     drinkId: number;
-    /** Số cốc đã được giao (kể cả cốc đang bay tới). */
-    reserved: number;
-    /** Số cốc đã đáp xuống đĩa. */
-    landed: number;
+    state: SlotState;
+}
+
+/** Một đơn: cupsPerOrder ô, mỗi ô một loại (tối đa `maxTypesPerOrder` loại, ví dụ [A, A, B]). */
+interface Order {
+    slots: OrderSlot[];
     done: boolean;
+}
+
+/** Số ô đã được giữ chỗ (đang bay hoặc đã đáp). */
+function filledCount(order: Order): number {
+    return order.slots.filter(s => s.state !== SlotState.Empty).length;
+}
+
+function allLanded(order: Order): boolean {
+    return order.slots.every(s => s.state === SlotState.Landed);
 }
 
 /**
  * Quản lý khách và đơn đồ uống.
  *
- * Đơn không xáo ngẫu nhiên mà được sinh động theo hướng dễ thắng nhất: mỗi khi
- * một chỗ trống, chọn loại đồ uống mà người chơi đang lấy được nhiều cốc nhất
- * (cốc trong khay + cốc đang lộ trên bàn). Mỗi loại chỉ được gọi tối đa
- * (số cốc còn lại / cupsPerOrder) đơn nên tổng đơn luôn khớp tổng cốc.
+ * Mỗi đơn gồm cupsPerOrder ô, tối đa `maxTypesPerOrder` loại. Loại cốc lấy từ inventory thực tế
+ * của màn: `unassigned` = số cốc mỗi loại chưa dành cho đơn nào, tạo đơn thì trừ. Nhờ vậy tổng cốc
+ * trên bàn + khay + đơn luôn bằng tổng cốc lúc bắt đầu. Xác suất rút nghiêng về loại đang lấy được
+ * ngay (cốc trong khay, cốc lộ / sắp lộ trên bàn, trừ phần các đơn đang chờ đã dành) để giảm nguy cơ bí.
  */
 @ccclass('OrderManager')
 export class OrderManager extends Component {
@@ -53,6 +74,12 @@ export class OrderManager extends Component {
 
     @property({ tooltip: 'Số cốc mỗi đơn' })
     cupsPerOrder = 3;
+
+    @property({ tooltip: 'Mỗi đơn tối đa bấy nhiêu loại đồ uống (vd 2 → [A, A, B]); cuối màn thiếu cốc thì cho thêm loại. 1 = mỗi đơn một loại' })
+    maxTypesPerOrder = 2;
+
+    @property({ tooltip: 'Khi rút loại cho đơn mới, tính cả cốc sẽ lộ sau tối đa bao nhiêu đợt bốc (0 = chỉ cốc đang lộ). Đợt d = cốc lộ ra sau khi bốc hết các đợt trước' })
+    lookahead = 2;
 
     @property({ tooltip: 'Cứ ngẫu nhiên [x, y] khách mới vào thì có 1 khách nói (CustomerChat). Khách giữa luôn nói khi bắt đầu màn' })
     chatEvery = new Vec2(2, 3);
@@ -101,10 +128,11 @@ export class OrderManager extends Component {
             t.node.off(Node.EventType.TOUCH_END, this.onTileTouched, this);
             t.node.on(Node.EventType.TOUCH_END, this.onTileTouched, this);
         }
-        for (const [id, n] of this.unassigned) {
-            if (n % this.cupsPerOrder !== 0) console.warn(`[OrderManager] drink ${id}: ${n} cups, not a multiple of ${this.cupsPerOrder}`);
-        }
-        this.totalOrders = Math.floor(tiles.filter(t => !t.collected).length / this.cupsPerOrder);
+        // Mỗi loại không cần chia hết cho cupsPerOrder, chỉ tổng cốc quyết định số đơn; phần dư không
+        // thuộc đơn nào (thắng khi đủ totalOrders đơn, không cần bốc hết cốc dư).
+        const total = tiles.filter(t => !t.collected).length;
+        if (total % this.cupsPerOrder) console.warn(`[OrderManager] ${total} cups, ${total % this.cupsPerOrder} cup(s) will not be ordered`);
+        this.totalOrders = Math.floor(total / this.cupsPerOrder);
         this.served = 0;
         this.spawned = 0;
         this.finished = false;
@@ -128,36 +156,46 @@ export class OrderManager extends Component {
         // Bỏ qua cốc không hợp lệ, màn đã xong, hoặc cốc đang bị che / không chọn được.
         if (!tile || this.finished || !this.itemManager?.isSelectable(tile)) return;
 
-        const order = this.findOrder(tile.drinkId);
-        if (!order && this.tray?.isFull()) return; // Khay đầy: không nhận thêm, không mất cốc.
+        const target = this.findSlot(tile.drinkId);
+        if (!target && this.tray?.isFull()) return; // Khay đầy: không nhận thêm, không mất cốc.
 
         // Cốc rời bàn ngay (model), node vẫn giữ lại để nhảy lên khách hoặc khay.
         this.itemManager.detachTile(tile);
         Ply_SoundManager.Ins?.playFxOneShot(FxType.TapTile);
-        // Giao thẳng nếu có khách cần loại này; nếu không thì cất tạm vào khay chờ.
-        if (order) this.deliver(order, tile);
+        // Giao thẳng vào ô đang chờ cùng loại; nếu không khách nào cần thì cất tạm vào khay chờ.
+        if (target) this.deliver(target.order, target.index, tile);
         else this.tray?.add(tile);
         this.checkLose();
     }
 
-    /** Đơn đang chờ cùng loại, ưu tiên đơn đã có nhiều cốc nhất để khách đi sớm. */
-    private findOrder(drinkId: number): Order | null {
-        let best: Order | null = null;
+    /** Ô đang chờ cùng loại, ưu tiên đơn đã có nhiều cốc nhất để khách đi sớm. */
+    private findSlot(drinkId: number): { order: Order; index: number } | null {
+        let best: { order: Order; index: number } | null = null;
+        let bestFilled = -1;
         for (const o of this.active) {
-            if (o && o.reserved < this.cupsPerOrder && o.drinkId === drinkId && (!best || o.reserved > best.reserved)) best = o;
+            if (!o || o.done) continue;
+            const index = o.slots.findIndex(s => s.state === SlotState.Empty && s.drinkId === drinkId);
+            if (index < 0) continue;
+            const filled = filledCount(o);
+            if (filled > bestFilled) {
+                best = { order: o, index };
+                bestFilled = filled;
+            }
         }
         return best;
     }
 
-    /** Giao cốc cho đơn: giữ chỗ ngay, cốc nhảy lên đĩa; đủ cốc đáp xong thì khách rời đi. */
-    private deliver(order: Order, tile: DrinkTile): void {
+    /** Giao cốc vào ô `index` của đơn: giữ chỗ ngay, cốc nhảy lên đúng ô; đủ cả đơn đáp xong thì khách rời đi. */
+    private deliver(order: Order, index: number, tile: DrinkTile): void {
         const slot = this.active.indexOf(order);
-        // Đặt chỗ ngay khi bắt đầu bay để cốc tiếp theo không bị giao quá số lượng đơn.
-        const index = order.reserved++;
+        // Giữ chỗ ngay khi bắt đầu bay để cốc bấm tiếp (kể cả bấm nhanh) không vào trùng ô.
+        order.slots[index].state = SlotState.Flying;
         this.customers[slot].receive(tile.node, index, () => {
             // Chỉ tính là đã tới nơi sau khi animation đáp xuống hoàn tất.
-            order.landed++;
-            if (order.landed === this.cupsPerOrder) this.complete(order, slot);
+            order.slots[index].state = SlotState.Landed;
+            if (!order.done && allLanded(order)) this.complete(order, slot);
+            // Hết cốc bay mà khay đầy, không còn nước đi: thua ngay chứ không treo màn.
+            else this.checkLose();
         });
     }
 
@@ -197,10 +235,11 @@ export class OrderManager extends Component {
      * `talk` không truyền: tự quyết định theo `chatEvery` (cứ 2–3 khách thì 1 khách nói khi vào).
      */
     private spawnCustomer(slot: number, talk?: boolean, instant = false): void {
-        const drinkId = this.pickDrink();
-        if (drinkId === null) return;
-        this.unassigned.set(drinkId, this.unassigned.get(drinkId)! - this.cupsPerOrder);
-        const order: Order = { drinkId, reserved: 0, landed: 0, done: false };
+        const drinks = this.pickOrder();
+        if (!drinks) return;
+        // Dành cốc cho đơn ngay khi tạo: đơn khác không thể gọi lại chính những cốc này.
+        for (const id of drinks) this.unassigned.set(id, (this.unassigned.get(id) ?? 0) - 1);
+        const order: Order = { slots: drinks.map(drinkId => ({ drinkId, state: SlotState.Empty })), done: false };
         this.active[slot] = order;
         // Xoay vòng avatar theo thứ tự khách được tạo.
         const avatar = this.avatarFrames.length ? this.avatarFrames[this.spawned % this.avatarFrames.length] : null;
@@ -209,37 +248,123 @@ export class OrderManager extends Component {
             talk = --this.chatCountdown <= 0;
             if (talk) this.resetChatCountdown();
         }
-        this.customers[slot].show(avatar, this.mapBuilder?.drinkFrames[drinkId] ?? null, talk, instant);
+        const frames = drinks.map(id => this.mapBuilder?.drinkFrames[id] ?? null);
+        this.customers[slot].show(avatar, frames, talk, instant);
 
-        // Tự chuyển cốc cùng loại đang chờ trong khay sang đơn mới.
-        for (const tile of this.tray?.take(drinkId, this.cupsPerOrder) ?? []) this.deliver(order, tile);
+        // Tự chuyển cốc đúng loại đang chờ trong khay vào từng ô còn trống.
+        order.slots.forEach((s, index) => {
+            if (s.state !== SlotState.Empty) return;
+            const tile = this.tray?.take(s.drinkId, 1)[0];
+            if (tile) this.deliver(order, index, tile);
+        });
     }
 
     /**
-     * Chọn loại đồ uống dễ phục vụ nhất. Điểm ưu tiên:
-     * 1. Số cốc lấy được ngay (khay + cốc đang lộ), tối đa bằng một đơn.
-     * 2. Cốc trong khay, để giải phóng khay.
-     * 3. Tránh trùng loại với khách đang đứng.
+     * Rút ngẫu nhiên cupsPerOrder cốc cho đơn mới từ inventory `unassigned` (rút không hoàn lại:
+     * không gọi quá số cốc còn lại của từng loại). Rút loại mới cho tới khi đủ `maxTypesPerOrder`
+     * loại, các ô còn lại lặp lại các loại đã chọn; hết cốc của các loại đó thì mới thêm loại khác.
+     * Trả về null khi tổng cốc chưa dành không đủ một đơn.
+     *
+     * Cốc đang nằm trong khay được đưa vào đơn trước (giải phóng khay, mỗi loại 1 cốc).
+     * Các ô còn lại chỉ rút trong nhóm loại lấy được sớm nhất: trước hết loại "lấy được ngay" (cốc trong
+     * khay + cốc đang lộ, trừ ô đang chờ của khách khác); không đủ mới tới loại lộ ra sau 1, 2...
+     * đợt bốc (tối đa `lookahead`). Trong nhóm đó rút ngẫu nhiên có trọng số.
+     * Giúp dễ gom đủ đơn nhưng không bảo đảm luôn có đường thắng.
      */
-    private pickDrink(): number | null {
-        const selectable = this.itemManager?.getSelectableTiles() ?? [];
-        let bestId: number | null = null;
-        let bestScore = -Infinity;
-        for (const [id, left] of this.unassigned) {
-            // Không tạo đơn nếu số cốc còn lại không đủ cho một đơn hoàn chỉnh.
-            if (left < this.cupsPerOrder) continue;
-            const inTray = this.tray?.count(id) ?? 0;
-            const visible = selectable.filter(t => t.drinkId === id).length;
-            const sameActive = this.active.filter(o => o && !o.done && o.drinkId === id).length;
-            // Ưu tiên loại có thể gom đủ nhanh, rồi loại đang chiếm khay; giảm điểm nếu
-            // đã có khách khác chờ cùng loại. `left` giúp phân định khi các điểm gần bằng nhau.
-            const score = Math.min(this.cupsPerOrder, inTray + visible) * 100 + inTray * 10 - sameActive * 50 + left;
-            if (score > bestScore) {
-                bestScore = score;
-                bestId = id;
-            }
+    private pickOrder(): number[] | null {
+        const need = this.cupsPerOrder;
+        const maxTypes = Math.max(1, this.maxTypesPerOrder);
+        const left = new Map<number, number>();
+        let total = 0;
+        this.unassigned.forEach((n, id) => {
+            if (n <= 0) return;
+            left.set(id, n);
+            total += n;
+        });
+        if (total < need) return null;
+
+        // Ô đang chờ của các khách khác: cốc gần nhất của loại đó đã được dành cho họ.
+        const demand = new Map<number, number>();
+        for (const o of this.active) {
+            if (!o || o.done) continue;
+            for (const s of o.slots) if (s.state === SlotState.Empty) demand.set(s.drinkId, (demand.get(s.drinkId) ?? 0) + 1);
         }
-        return bestId;
+        // avail[d]: số cốc mỗi loại lấy được sau tối đa d đợt bốc (khay + cốc lộ ở đợt 0..d) − phần đã dành.
+        // Đợt 0 = cốc trong khay + cốc đang lộ, tức "lấy được ngay".
+        const inTray = new Map<number, number>();
+        const run = new Map<number, number>();
+        left.forEach((_, id) => {
+            const n = this.tray?.count(id) ?? 0;
+            inTray.set(id, n);
+            run.set(id, n);
+        });
+        const reach = this.itemManager?.reachableByDepth(this.lookahead) ?? [];
+        const avail: Map<number, number>[] = [];
+        for (let d = 0; d < Math.max(1, reach.length); d++) {
+            reach[d]?.forEach((n, id) => run.set(id, (run.get(id) ?? 0) + n));
+            const m = new Map<number, number>();
+            run.forEach((n, id) => m.set(id, n - (demand.get(id) ?? 0)));
+            avail.push(m);
+        }
+
+        const drinks: number[] = [];
+        const picked = new Map<number, number>();
+        const take = (id: number): void => {
+            drinks.push(id);
+            picked.set(id, (picked.get(id) ?? 0) + 1);
+            left.set(id, left.get(id)! - 1);
+            for (const m of avail) m.set(id, (m.get(id) ?? 0) - 1);
+            inTray.set(id, Math.max(0, (inTray.get(id) ?? 0) - 1));
+        };
+        // Cốc trong khay chưa khách nào cần (luôn nằm trong `unassigned`) được đưa vào đơn trước, loại
+        // nhiều cốc trong khay nhất trước, để mỗi khách mới giải phóng khay.
+        const trayIds = Array.from(inTray.keys()).filter(id => inTray.get(id)! > 0).sort((a, b) => inTray.get(b)! - inTray.get(a)!);
+        for (const id of trayIds) {
+            if (drinks.length < need && picked.size < maxTypes && left.get(id)! > 0) take(id);
+        }
+        while (drinks.length < need) {
+            // Chưa đủ `maxTypes` loại: chỉ rút loại chưa có trong đơn. Đủ rồi: chỉ lặp lại các loại đã chọn.
+            // Không còn cốc phù hợp (cuối màn) thì rút loại bất kỳ còn cốc, để mọi cốc vẫn chia hết vào đơn.
+            const wantNew = picked.size < maxTypes;
+            const candidates: number[] = [];
+            left.forEach((n, id) => {
+                if (n > 0 && picked.has(id) !== wantNew) candidates.push(id);
+            });
+            if (candidates.length === 0) left.forEach((n, id) => n > 0 && candidates.push(id));
+            // Chỉ gọi loại lấy được sớm nhất có thể: ưu tiên loại lấy được ngay (đợt 0), không có mới
+            // tới loại lộ ra sau 1, 2... đợt bốc; cốc nằm sâu hơn `lookahead` chỉ gọi khi không còn cách nào.
+            let tier = -1;
+            for (let d = 0; d < avail.length && tier < 0; d++) {
+                if (candidates.some(id => (avail[d].get(id) ?? 0) > 0)) tier = d;
+            }
+            const weights: { id: number; w: number }[] = [];
+            let sum = 0;
+            for (const id of candidates) {
+                const free = tier >= 0 ? avail[tier].get(id) ?? 0 : 1;
+                if (free <= 0) continue;
+                const w = (1 + Math.min(free, need) + 2 * (inTray.get(id) ?? 0)) * Math.sqrt(left.get(id)!);
+                weights.push({ id, w });
+                sum += w;
+            }
+            let r = Math.random() * sum;
+            let id = weights[weights.length - 1].id;
+            for (const e of weights) {
+                r -= e.w;
+                if (r < 0) {
+                    id = e.id;
+                    break;
+                }
+            }
+            take(id);
+        }
+        // Xáo vị trí trên đĩa để cốc lấy từ khay không luôn nằm bên trái.
+        for (let i = drinks.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            const t = drinks[i];
+            drinks[i] = drinks[j];
+            drinks[j] = t;
+        }
+        return drinks;
     }
 
     private checkWin(): void {
@@ -253,8 +378,9 @@ export class OrderManager extends Component {
     /** Thua khi khay đầy và không cốc lộ nào giao được cho khách đang chờ. */
     private checkLose(): void {
         if (this.finished || !this.tray?.isFull()) return;
-        const canDeliver = (this.itemManager?.getSelectableTiles() ?? []).some(t => this.findOrder(t.drinkId));
-        const pending = this.active.some(o => o && (o.done || o.landed < o.reserved)); // Cốc đang bay / khách đang rời đi.
+        const canDeliver = (this.itemManager?.getSelectableTiles() ?? []).some(t => this.findSlot(t.drinkId));
+        // Cốc đang bay / khách đang rời đi.
+        const pending = this.active.some(o => o && (o.done || o.slots.some(s => s.state === SlotState.Flying)));
         // Chưa thua nếu còn nước đi hợp lệ hoặc animation/khách rời đi chưa xử lý xong.
         if (canDeliver || pending) return;
         this.finished = true;
