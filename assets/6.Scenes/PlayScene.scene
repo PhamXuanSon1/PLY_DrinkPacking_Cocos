@@ -31326,7 +31326,11 @@
         "__id__": 185
       }
     ],
-    "stopAnims": [],
+    "stopAnims": [
+      {
+        "__id__": 148
+      }
+    ],
     "_googleMode": false,
     "hiddenByMode": [],
     "_id": "21g7tCR95IupMvxJazgmu4"
