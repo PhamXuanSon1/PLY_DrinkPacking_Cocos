@@ -418,7 +418,7 @@ export class CustomerController extends Component {
      * nên bị kéo méo/lệch. Giữ chiều cao gốc của Avatar, rộng theo tỉ lệ ảnh; anchor 0.5 nên
      * nhân vật luôn nằm giữa và chân vẫn đặt cùng một đường.
      */
-    private fitAvatar(frame: SpriteFrame): void {
+    fitAvatar(frame: SpriteFrame): void {
         const ut = this.avatar?.node.getComponent(UITransform);
         const rect = frame.rect;
         if (!ut || !rect.height) return;

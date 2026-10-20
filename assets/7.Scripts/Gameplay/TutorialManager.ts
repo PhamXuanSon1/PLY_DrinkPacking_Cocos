@@ -452,6 +452,45 @@ export class TutorialManager extends Component {
         else tween(op).to(duration, { opacity: to }).start();
     }
 
+    /**
+     * Chỉ dùng trong editor (EditorViewSwitcher, view Intro): dựng cảnh tutorial để xem trước —
+     * khách giữa với avatar + đơn mẫu, 3 cốc mẫu (không được lưu vào scene). Không đổi vị trí /
+     * scale node nào; trả về các node cần ẩn (đĩa khác, ô khay ngoài tutorialSlots) để
+     * EditorViewSwitcher ẩn và tự bật lại khi chạy game. `on` = false: chỉ dọn cốc mẫu.
+     */
+    editorPreview(on: boolean): Node[] {
+        const root = this.tileRoot;
+        if (root) for (const c of root.children.slice()) if (c.name.startsWith('TutTile_')) c.destroy();
+        if (!on) return [];
+        const all = this.node.scene.getComponentsInChildren(CustomerController);
+        const customer = this.middle(all);
+        if (!customer) return [];
+        const frames = this.orderFrames();
+        if (customer.avatar && this.customerAvatar) {
+            customer.avatar.spriteFrame = this.customerAvatar;
+            customer.fitAvatar(this.customerAvatar);
+        }
+        customer.ghosts.forEach((g, i) => {
+            g.node.active = true;
+            g.spriteFrame = frames[i] ?? null;
+        });
+        if (root && this.mapBuilder) {
+            const s = this.tileScale;
+            this.tileOrder().forEach((drinkId, i) => {
+                const node = this.mapBuilder!.createTile(root, drinkId, `TutTile_${i}`);
+                node.hideFlags |= CCObject.Flags.DontSave;
+                node.setPosition((i - 1) * this.tileSpacing, 0, 0);
+                node.setScale(s, s, 1);
+            });
+        }
+        const tray = customer.node.parent;
+        const hide = all.map(c => c.node.parent).filter((t): t is Node => !!t && t !== tray);
+        const slots = this.tutorialSlots.filter(n => n?.isValid);
+        const slotParent = slots[0]?.parent;
+        if (slotParent) hide.push(...slotParent.children.filter(c => !slots.includes(c)));
+        return hide;
+    }
+
     /** Khách đứng gần giữa màn hình nhất. */
     private middle(list: CustomerController[]): CustomerController | null {
         if (!list.length) return null;
